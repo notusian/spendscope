@@ -1,0 +1,27 @@
+package com.spendscope.audit;
+
+/** The security and account events surfaced on the user's activity page. */
+public enum AuditEventType {
+    USER_REGISTERED,
+    LOGIN_SUCCESS,
+    LOGIN_FAILURE,
+    LOGIN_BLOCKED,
+    LOGOUT,
+    PASSWORD_CHANGED,
+    ACCOUNT_CREATED,
+    ACCOUNT_UPDATED,
+    ACCOUNT_ARCHIVED,
+    ACCOUNT_DELETED,
+    CATEGORY_CREATED,
+    CATEGORY_DELETED,
+    TRANSACTION_CREATED,
+    TRANSACTION_UPDATED,
+    TRANSACTION_DELETED,
+    CSV_IMPORTED,
+    CSV_IMPORT_REJECTED,
+    BUDGET_CREATED,
+    BUDGET_UPDATED,
+    BUDGET_DELETED,
+    DASHBOARD_UPDATED,
+    DEMO_SESSION_CREATED
+}

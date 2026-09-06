@@ -1,0 +1,36 @@
+# Production. Every value that differs from a developer laptop comes from the
+# environment - nothing secret is committed.
+spring:
+  jpa:
+    hibernate:
+      # Never "update" in production: it would let a code change silently and
+      # irreversibly alter a live schema. Flyway migrations are the only way in.
+      ddl-auto: validate
+    show-sql: false
+
+server:
+  servlet:
+    session:
+      cookie:
+        secure: true      # HTTPS only.
+        same-site: none   # Required when the SPA is on a different origin.
+  # Trust the reverse proxy's X-Forwarded-* headers so redirects and the
+  # client IP are correct behind a load balancer.
+  forward-headers-strategy: framework
+
+management:
+  endpoint:
+    health:
+      show-details: never
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+logging:
+  level:
+    root: WARN
+    com.spendscope: INFO
+    com.spendscope.access: INFO

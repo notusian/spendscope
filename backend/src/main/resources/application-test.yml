@@ -1,0 +1,31 @@
+# Integration tests. The datasource is supplied by Testcontainers (or by
+# SPENDSCOPE_TEST_DB_* when Docker is unavailable) - see AbstractIntegrationTest.
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+    clean-disabled: false
+
+logging:
+  level:
+    root: WARN
+    com.spendscope: INFO
+    # The per-request access log is useful in production and pure noise in a
+    # test run that makes thousands of requests.
+    com.spendscope.access: WARN
+    org.testcontainers: WARN
+
+spendscope:
+  demo:
+    # The per-IP limiter is in-process state shared by every test in the run,
+    # and every test comes from the same "address". Raised here so the suite is
+    # not throttled; the limit itself has its own test (DemoThrottleIT).
+    max-sessions-per-ip: 1000
+
+  security:
+    allowed-origins: http://localhost:5173
+    # Raised so tests that log in repeatedly are not throttled. The limiter has
+    # its own dedicated test.
+    max-login-attempts: 1000
