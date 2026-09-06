@@ -1,0 +1,302 @@
+# Base configuration shared by every profile.
+# Environment-specific overrides live in application-{local,test,prod}.yml.
+spring:
+  application:
+    name: spendscope
+
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/spendscope}
+    username: ${DATABASE_USERNAME:spendscope}
+    password: ${DATABASE_PASSWORD:spendscope}
+    hikari:
+      # Modest pool: this is a single modular monolith, and PostgreSQL does not
+      # thank you for hundreds of idle connections.
+      maximum-pool-size: 10
+      minimum-idle: 2
+
+  jpa:
+    open-in-view: false          # Lazy loading in the view layer hides N+1s.
+    hibernate:
+      ddl-auto: validate         # Flyway owns the schema. Hibernate only checks it.
+    properties:
+      hibernate:
+        jdbc:
+          batch_size: 100        # CSV imports insert in batches.
+          time_zone: UTC
+        order_inserts: true
+        order_updates: true
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+
+  servlet:
+    multipart:
+      # Container-level ceiling. The application also enforces
+      # spendscope.import.max-file-size, which should be <= this.
+      max-file-size: 5MB
+      max-request-size: 6MB
+
+  jackson:
+    # Null fields are serialised, not dropped. A client that sees
+    # {"groupBy": null} knows the field exists and is unset; one that sees the
+    # key missing entirely cannot tell that from a renamed field. Responses
+    # that genuinely want sparse output opt in with @JsonInclude on the class
+    # (see ApiError).
+    default-property-inclusion: always
+    serialization:
+      write-dates-as-timestamps: false
+
+server:
+  port: ${SERVER_PORT:8080}
+  error:
+    # Never leak stack traces or exception messages through the default error page.
+    include-message: never
+    include-stacktrace: never
+    include-binding-errors: never
+  servlet:
+    session:
+      timeout: 30m
+      cookie:
+        name: JSESSIONID
+        http-only: true          # JavaScript can never read the session cookie.
+        secure: ${SESSION_COOKIE_SECURE:false}   # true in production (HTTPS only).
+        same-site: lax           # Blocks the cross-site POSTs CSRF relies on.
+        path: /
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Only health is exposed. env/beans/configprops would leak configuration.
+        include: health
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+
+springdoc:
+  api-docs:
+    enabled: ${OPENAPI_ENABLED:true}
+  swagger-ui:
+    enabled: ${OPENAPI_ENABLED:true}
+    path: /swagger-ui.html
+
+logging:
+  level:
+    root: INFO
+    com.spendscope: INFO
+
+spendscope:
+  security:
+    # Comma-separated list in the environment, e.g. "https://app.example.com".
+    allowed-origins: ${FRONTEND_ORIGIN:http://localhost:5173}
+    max-login-attempts: 10
+    login-attempt-window: 15m
+
+  import:
+    max-file-size: 5MB
+    max-rows: 10000
+    max-reported-errors: 50
+
+  demo:
+    # Demo accounts are disposable; anything older than this can be reaped.
+    retention: 24h
+
+  # ------------------------------------------------------------------
+  # Merchant categorisation rules.
+  #
+  # Evaluated top to bottom, first match wins. Keywords are matched as
+  # substrings against the NORMALISED description (upper case, punctuation and
+  # reference numbers stripped), so they must be written in upper case.
+  #
+  # Ordering matters: GRABFOOD has to come before GRAB, or every food delivery
+  # would be filed as transport.
+  # ------------------------------------------------------------------
+  categorization:
+    rules:
+      # --- Food delivery: must precede the ride-hailing rules -------------
+      - merchant: GrabFood
+        category: Food
+        keywords: [GRABFOOD, GRAB FOOD]
+      - merchant: Deliveroo
+        category: Food
+        keywords: [DELIVEROO]
+      - merchant: foodpanda
+        category: Food
+        keywords: [FOODPANDA, FOOD PANDA]
+
+      # --- Restaurants and cafes ------------------------------------------
+      - merchant: Starbucks
+        category: Food
+        keywords: [STARBUCKS]
+      - merchant: McDonald's
+        category: Food
+        keywords: [MCDONALD, MCDONALDS, MCD]
+      - merchant: Subway
+        category: Food
+        keywords: [SUBWAY SANDWICH, SUBWAY REST]
+      - merchant: KFC
+        category: Food
+        keywords: [KFC]
+      - merchant: Ya Kun Kaya Toast
+        category: Food
+        keywords: [YA KUN]
+      - merchant: Toast Box
+        category: Food
+        keywords: [TOAST BOX]
+      - merchant: Coffee Bean
+        category: Food
+        keywords: [COFFEE BEAN]
+
+      # --- Groceries -------------------------------------------------------
+      - merchant: FairPrice
+        category: Groceries
+        keywords: [FAIRPRICE, NTUC FP, FAIR PRICE]
+      - merchant: Cold Storage
+        category: Groceries
+        keywords: [COLD STORAGE]
+      - merchant: Sheng Siong
+        category: Groceries
+        keywords: [SHENG SIONG]
+      - merchant: Giant
+        category: Groceries
+        keywords: [GIANT HYPER, GIANT SUPER]
+      - merchant: RedMart
+        category: Groceries
+        keywords: [REDMART]
+
+      # --- Transport -------------------------------------------------------
+      - merchant: Grab
+        category: Transport
+        keywords: [GRAB]
+      - merchant: Gojek
+        category: Transport
+        keywords: [GOJEK]
+      - merchant: ComfortDelGro
+        category: Transport
+        keywords: [COMFORTDELGRO, COMFORT TAXI]
+      - merchant: SimplyGo
+        category: Transport
+        keywords: [SIMPLYGO, TRANSITLINK, EZ LINK, EZLINK]
+      - merchant: Shell
+        category: Transport
+        keywords: [SHELL]
+      - merchant: Esso
+        category: Transport
+        keywords: [ESSO]
+
+      # --- Subscriptions ---------------------------------------------------
+      - merchant: Spotify
+        category: Subscriptions
+        keywords: [SPOTIFY]
+      - merchant: Netflix
+        category: Subscriptions
+        keywords: [NETFLIX]
+      - merchant: Disney+
+        category: Subscriptions
+        keywords: [DISNEY PLUS, DISNEYPLUS, DISNEY]
+      - merchant: Apple
+        category: Subscriptions
+        keywords: [APPLE BILL, ITUNES, APPLE SERVICES]
+      - merchant: Google
+        category: Subscriptions
+        keywords: [GOOGLE STORAGE, GOOGLE ONE, YOUTUBE PREMIUM]
+      - merchant: Adobe
+        category: Subscriptions
+        keywords: [ADOBE]
+      - merchant: OpenAI
+        category: Subscriptions
+        keywords: [OPENAI, CHATGPT]
+
+      # --- Shopping --------------------------------------------------------
+      - merchant: Uniqlo
+        category: Shopping
+        keywords: [UNIQLO]
+      - merchant: Shopee
+        category: Shopping
+        keywords: [SHOPEE]
+      - merchant: Lazada
+        category: Shopping
+        keywords: [LAZADA]
+      - merchant: Amazon
+        category: Shopping
+        keywords: [AMAZON, AMZN]
+      - merchant: IKEA
+        category: Shopping
+        keywords: [IKEA]
+      - merchant: Decathlon
+        category: Shopping
+        keywords: [DECATHLON]
+      - merchant: Muji
+        category: Shopping
+        keywords: [MUJI]
+
+      # --- Entertainment ---------------------------------------------------
+      - merchant: Golden Village
+        category: Entertainment
+        keywords: [GOLDEN VILLAGE, GV CINEMA]
+      - merchant: Steam
+        category: Entertainment
+        keywords: [STEAMGAMES, STEAMPOWERED]
+      - merchant: Ticketmaster
+        category: Entertainment
+        keywords: [TICKETMASTER, SISTIC]
+
+      # --- Utilities -------------------------------------------------------
+      - merchant: SP Group
+        category: Utilities
+        keywords: [SP SERVICES, SP GROUP, SPSERVICES]
+      - merchant: Singtel
+        category: Utilities
+        keywords: [SINGTEL]
+      - merchant: StarHub
+        category: Utilities
+        keywords: [STARHUB]
+      - merchant: M1
+        category: Utilities
+        keywords: [M1 LIMITED, M1 POSTPAID]
+
+      # --- Healthcare ------------------------------------------------------
+      - merchant: Guardian
+        category: Healthcare
+        keywords: [GUARDIAN HEALTH, GUARDIAN PHARM]
+      - merchant: Watsons
+        category: Healthcare
+        keywords: [WATSONS]
+      - merchant: Raffles Medical
+        category: Healthcare
+        keywords: [RAFFLES MEDICAL]
+
+      # --- Travel ----------------------------------------------------------
+      - merchant: Singapore Airlines
+        category: Travel
+        keywords: [SINGAPORE AIRLINES]
+      - merchant: Scoot
+        category: Travel
+        keywords: [FLYSCOOT, SCOOT]
+      # Agoda and Airbnb come before Booking.com: "AGODA HOTEL BOOKING"
+      # contains the substring BOOKING, and would otherwise be attributed to
+      # the wrong merchant.
+      - merchant: Agoda
+        category: Travel
+        keywords: [AGODA]
+      - merchant: Airbnb
+        category: Travel
+        keywords: [AIRBNB]
+      - merchant: Booking.com
+        category: Travel
+        keywords: [BOOKING]
+
+      # --- Education -------------------------------------------------------
+      - merchant: Coursera
+        category: Education
+        keywords: [COURSERA]
+      - merchant: Udemy
+        category: Education
+        keywords: [UDEMY]
+      - merchant: NUS
+        category: Education
+        keywords: [NATIONAL UNIVERSITY OF, NUS ]

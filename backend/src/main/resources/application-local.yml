@@ -1,0 +1,25 @@
+# Local development. Assumes PostgreSQL on localhost:5432 (docker compose up db).
+spring:
+  jpa:
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+
+logging:
+  level:
+    com.spendscope: DEBUG
+    # Uncomment when investigating a query:
+    # org.hibernate.SQL: DEBUG
+    # org.hibernate.orm.jdbc.bind: TRACE
+
+server:
+  servlet:
+    session:
+      cookie:
+        # HTTP on localhost, so a Secure cookie would never be sent back.
+        secure: false
+
+spendscope:
+  security:
+    allowed-origins: http://localhost:5173,http://127.0.0.1:5173

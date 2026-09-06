@@ -1,0 +1,61 @@
+# Local development and a full local run of the stack.
+#
+#   docker compose up db        -> just PostgreSQL, for running the backend from an IDE
+#   docker compose up           -> the whole application on http://localhost:8080
+#
+# Nothing here is production configuration: the passwords are local-only
+# defaults and are overridden by real secrets when deployed.
+
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: spendscope-db
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME:-spendscope}
+      POSTGRES_USER: ${DATABASE_USERNAME:-spendscope}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-spendscope}
+    ports:
+      # Exposed so the backend can also be run outside Docker against it.
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # The backend waits for this, so it never starts against a database that
+      # is still initialising and then dies on a connection refusal.
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USERNAME:-spendscope} -d ${DATABASE_NAME:-spendscope}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    container_name: spendscope-backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-local}
+      DATABASE_URL: jdbc:postgresql://db:5432/${DATABASE_NAME:-spendscope}
+      DATABASE_USERNAME: ${DATABASE_USERNAME:-spendscope}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-spendscope}
+      # The frontend container proxies /api, so the browser only ever sees one
+      # origin. This is here for a split-origin deployment.
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:8080}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+    ports:
+      - "8081:8080"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: spendscope-frontend
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+volumes:
+  postgres-data:

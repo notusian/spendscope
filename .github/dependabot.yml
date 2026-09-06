@@ -1,0 +1,30 @@
+# Dependency updates, grouped so a week of patch bumps is one pull request
+# rather than fifteen.
+version: 2
+updates:
+  - package-ecosystem: maven
+    directory: /backend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      spring:
+        patterns: ["org.springframework*", "org.springframework.boot*"]
+      test:
+        patterns: ["org.testcontainers*", "org.junit*", "org.assertj*"]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      react:
+        patterns: ["react", "react-dom", "react-router-dom", "@types/react*"]
+      tooling:
+        patterns: ["vite", "vitest", "typescript", "eslint*", "@typescript-eslint/*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
