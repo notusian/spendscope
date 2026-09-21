@@ -1,7 +1,7 @@
 # SpendScope
 
 **Personal finance analytics.** Import your bank transactions, let SpendScope
-categorise them, and see where your money actually goes — with budgets,
+categorise them, and see where your money actually goes, with budgets,
 subscription detection and unusual-spending alerts.
 
 <p>
@@ -17,8 +17,8 @@ subscription detection and unusual-spending alerts.
 
 ## Live demo
 
-_Not yet deployed._ The application is deployment-ready — see
-[Deployment](#deployment) — but no public instance is running.
+_Not yet deployed._ The application is deployment-ready (see
+[Deployment](#deployment)) but no public instance is running.
 
 Run it locally in about two minutes with [Docker](#docker), then click
 **Try the demo** on the landing page. That creates a throwaway account with nine
@@ -53,7 +53,7 @@ months of synthetic data: no sign-up, no real financial information.
 **CSV import**
 - Upload a bank export; rows are validated, normalised, matched to merchants,
   categorised and de-duplicated before anything is saved
-- One malformed row is reported with its line number — the valid rows around it
+- One malformed row is reported with its line number; the valid rows around it
   still import
 - **Raw statements are never stored.** Only the parsed transactions survive
 
@@ -65,7 +65,7 @@ months of synthetic data: no sign-up, no real financial information.
 **Analytics**
 - Total, average daily, transaction count, top category, top merchant
 - Group by category, merchant, account, day, week or month
-- Period comparison that handles partial months correctly — 1–6 September is
+- Period comparison that handles partial months correctly: 1–6 September is
   compared against 1–6 August, not against the whole of August
 - No `Infinity`, no `NaN`: an undefined percentage is `null` and renders as "—"
 
@@ -133,7 +133,7 @@ Full diagrams and reasoning: **[docs/architecture.md](docs/architecture.md)**.
 | **Testing** | JUnit 5, Testcontainers, Vitest, Playwright | Real PostgreSQL, real browser |
 | **Infrastructure** | Docker, GitHub Actions | Multi-stage images, five-job CI |
 
-Every one of these is justified — with its tradeoffs — in
+Every one of these is justified, with its tradeoffs, in
 **[docs/decisions.md](docs/decisions.md)**.
 
 ---
@@ -157,7 +157,7 @@ Full detail in **[docs/security.md](docs/security.md)**.
   names; audit metadata is filtered for anything credential-like.
 - **Rate limiting** on login and on the anonymous demo endpoint.
 
-The security tests are the point, not an afterthought — `CrossUserAccessIT`
+The security tests are the point, not an afterthought: `CrossUserAccessIT`
 alone asserts 23 cross-user scenarios.
 
 ---
@@ -189,7 +189,7 @@ cp .env.example .env
 ```
 
 The defaults work for local development. Flyway creates the schema on first
-start — no manual SQL needed.
+start, no manual SQL needed.
 
 ### 3. Backend
 
@@ -267,8 +267,8 @@ mvn verify
 
 The tests are identical either way; only the source of the connection differs.
 
-> H2 is deliberately **not** used. Half of what these tests verify — `date_trunc`,
-> JSONB, partial unique indexes — does not exist in it, and a suite that passes
+> H2 is deliberately **not** used. Half of what these tests verify (`date_trunc`,
+> JSONB, partial unique indexes) does not exist in it, and a suite that passes
 > on H2 and fails in production is worse than no suite.
 
 ### Frontend
@@ -305,8 +305,8 @@ python3 scripts/generate_sample_data.py
 | File | Rows | Purpose |
 |---|---|---|
 | `sample-transactions.csv` | 396 | 9 months of realistic spending |
-| `sample-transactions-overlap.csv` | 49 | Overlaps the above — demonstrates duplicate detection |
-| `sample-transactions-with-errors.csv` | 6 | Deliberately broken rows — demonstrates per-row rejection |
+| `sample-transactions-overlap.csv` | 49 | Overlaps the above; demonstrates duplicate detection |
+| `sample-transactions-with-errors.csv` | 6 | Deliberately broken rows; demonstrates per-row rejection |
 
 To import: log in, create an account on **Accounts**, then upload on **Import**.
 
@@ -334,7 +334,7 @@ This creates a throwaway account with three accounts, ~400 transactions across
 nine months, five budgets and the default dashboard, then logs you straight in.
 
 The data is entirely synthetic and generated from a fixed seed, so every demo
-account looks the same — screenshots stay reproducible. Demo accounts are
+account looks the same, so screenshots stay reproducible. Demo accounts are
 flagged and reaped automatically after 24 hours.
 
 ---
@@ -368,7 +368,7 @@ spendscope/
 │   ├── src/test/java/                   192 unit + 129 integration tests
 │   └── Dockerfile
 ├── frontend/                React + TypeScript SPA
-│   ├── src/api/             typed client — the only place fetch is called
+│   ├── src/api/             typed client (the only place fetch is called)
 │   ├── src/hooks/           TanStack Query hooks, auth context
 │   ├── src/components/      layout, shared UI, widget renderers
 │   ├── src/pages/           one component per route
@@ -428,7 +428,7 @@ to production Spring Boot.
 Stated plainly. These are boundaries of what was built, not defects in it.
 
 **Security**
-- Rate limiting and sessions are **in-process** — multi-instance deployment needs
+- Rate limiting and sessions are **in-process**; multi-instance deployment needs
   Spring Session (or sticky sessions) and a shared or edge rate limiter
 - No email verification, password reset, or multi-factor authentication
 - No account lockout or breach notification
@@ -437,7 +437,7 @@ Stated plainly. These are boundaries of what was built, not defects in it.
 **Functionality**
 - **Multi-currency totals are summed without FX conversion.** Correct for
   single-currency users; wrong for genuinely multi-currency ones
-- Only SpendScope's generic CSV format is supported — no bank-specific parsers,
+- Only SpendScope's generic CSV format is supported, with no bank-specific parsers,
   no OFX/QIF, no bank APIs
 - Analytics have no per-account filter; `ACCOUNT` grouping covers the question
   instead
@@ -448,11 +448,11 @@ Stated plainly. These are boundaries of what was built, not defects in it.
 
 **Operational**
 - No caching layer; analytics are computed on every request
-- CSV import runs synchronously in one transaction — fine at 10,000 rows, wrong
+- CSV import runs synchronously in one transaction: fine at 10,000 rows, wrong
   at 500,000
 - No metrics export (Prometheus/OTel) beyond the health endpoint
 - **Docker images have not been built or run** in the environment this was
-  developed in — Docker was unavailable. The Dockerfiles and compose file are
+  developed in, since Docker was unavailable. The Dockerfiles and compose file are
   written and validated by inspection, and the CI pipeline builds them, but they
   are the one part of this project not verified by execution
 
@@ -462,16 +462,16 @@ Stated plainly. These are boundaries of what was built, not defects in it.
 
 Roughly in order of value:
 
-1. **Spring Session with JDBC** — survive restarts, scale horizontally, and get
+1. **Spring Session with JDBC**: survive restarts, scale horizontally, and get
    distributed rate limiting at the same time
 2. **Password reset and email verification**
-3. **Bank-specific CSV profiles** — column mapping per bank, so users stop
+3. **Bank-specific CSV profiles**: column mapping per bank, so users stop
    reformatting exports by hand
 4. **Multi-currency support** with stored FX rates
-5. **Learned categorisation** trained on users' own corrections — the manual
-   overrides are exactly the labelled data the rules cannot produce
+5. **Learned categorisation** trained on users' own corrections (the manual
+   overrides are exactly the labelled data the rules cannot produce)
 6. **Asynchronous imports** for large files, with progress reporting
-7. **Recurring-payment alerts** — "Spotify went up by 2.00 this month"
+7. **Recurring-payment alerts**: "Spotify went up by 2.00 this month"
 8. **Data export** (CSV and JSON) and account deletion, for GDPR
 9. **Drag-and-drop dashboard** reordering
 10. **Metrics export** and distributed tracing
