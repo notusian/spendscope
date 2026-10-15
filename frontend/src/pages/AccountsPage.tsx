@@ -45,12 +45,20 @@ export default function AccountsPage() {
     }
   }
 
+  const handleArchive = async (id: number, archived: boolean) => {
+    setActionError(null)
+    try {
+      await archiveAccount.mutateAsync({ id, archived })
+    } catch (archiveError) {
+      setActionError(archiveError)
+    }
+  }
+
   return (
     <>
       <header className="page-header">
         <div className="page-header__text">
           <h1>Accounts</h1>
-          <p>The bank accounts, cards and wallets your transactions belong to.</p>
         </div>
         <label className="row" style={{ fontSize: '0.9rem' }}>
           <input
@@ -99,6 +107,9 @@ export default function AccountsPage() {
                   className="input"
                   required
                   maxLength={3}
+                  minLength={3}
+                  pattern="[A-Za-z]{3}"
+                  title="Enter a three-letter currency code, such as SGD."
                   style={{ textTransform: 'uppercase' }}
                   value={form.currency}
                   onChange={(event) => setForm({ ...form, currency: event.target.value.toUpperCase() })}
@@ -149,8 +160,10 @@ export default function AccountsPage() {
                             type="button"
                             className="button button--ghost button--small"
                             onClick={() =>
-                              archiveAccount.mutate({ id: account.id, archived: !account.archived })
+                              void handleArchive(account.id, !account.archived)
                             }
+                            disabled={archiveAccount.isPending || deleteAccount.isPending}
+                            aria-label={`${account.archived ? 'Restore' : 'Archive'} ${account.name}`}
                           >
                             {account.archived ? 'Restore' : 'Archive'}
                           </button>
@@ -158,6 +171,8 @@ export default function AccountsPage() {
                             type="button"
                             className="button button--ghost button--small"
                             onClick={() => handleDelete(account.id)}
+                            disabled={archiveAccount.isPending || deleteAccount.isPending}
+                            aria-label={`Delete ${account.name}`}
                           >
                             Delete
                           </button>

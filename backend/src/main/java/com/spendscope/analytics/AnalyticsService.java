@@ -90,6 +90,10 @@ public class AnalyticsService {
 
     @Transactional(readOnly = true)
     public AnalyticsResponse query(Long userId, AnalyticsQueryRequest request) {
+        if (request.groupBy() != null && (request.metric() == Metric.TRANSACTION_COUNT
+                || request.metric() == Metric.AVERAGE_DAILY_SPENDING)) {
+            throw new BadRequestException("This metric returns a single value and does not support grouping");
+        }
         DateRange current = periodResolver.resolve(
                 request.period().type(), request.period().start(), request.period().end());
 
@@ -105,7 +109,7 @@ public class AnalyticsService {
                 : withComparison(
                         groupedPoints(userId, current, groupBy, request.limitOrDefault()),
                         previous == null ? null : groupedPoints(userId, previous, groupBy, Integer.MAX_VALUE),
-                        spending(userId, current));
+                        spending(userId, current), groupBy);
 
         return new AnalyticsResponse(
                 request.metric(),
@@ -259,20 +263,28 @@ public class AnalyticsService {
     }
 
     /**
-     * Joins current and previous buckets by key, adding a per-bucket change and
-     * each bucket's share of the period total.
+     * Categories, accounts and merchants join by identity. Time series align
+     * by bucket position within each period because their absolute dates differ.
+     * If the previous period has fewer buckets, unmatched comparisons stay null.
      */
     private List<AnalyticsResponse.Point> withComparison(List<AnalyticsResponse.Point> current,
                                                          List<AnalyticsResponse.Point> previous,
-                                                         BigDecimal periodTotal) {
+                                                         BigDecimal periodTotal,
+                                                         GroupBy groupBy) {
         Map<String, BigDecimal> previousByKey = new LinkedHashMap<>();
         if (previous != null) {
             previous.forEach(point -> previousByKey.put(point.key(), point.value()));
         }
 
         List<AnalyticsResponse.Point> enriched = new ArrayList<>(current.size());
-        for (AnalyticsResponse.Point point : current) {
-            BigDecimal previousValue = previous == null ? null : previousByKey.getOrDefault(point.key(), Money.ZERO);
+        for (int index = 0; index < current.size(); index++) {
+            AnalyticsResponse.Point point = current.get(index);
+            BigDecimal previousValue = null;
+            if (previous != null) {
+                previousValue = groupBy.isTimeBucket()
+                        ? (index < previous.size() ? previous.get(index).value() : null)
+                        : previousByKey.getOrDefault(point.key(), Money.ZERO);
+            }
             enriched.add(new AnalyticsResponse.Point(
                     point.key(),
                     point.label(),

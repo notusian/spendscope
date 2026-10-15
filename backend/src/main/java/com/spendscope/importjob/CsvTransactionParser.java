@@ -4,6 +4,7 @@ import com.spendscope.common.error.ImportRejectedException;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
+import org.apache.commons.csv.DuplicateHeaderMode;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -49,9 +50,6 @@ public class CsvTransactionParser {
     /** UTF-8 byte order mark, which Excel writes and CSV parsers do not expect. */
     private static final char BYTE_ORDER_MARK = '﻿';
 
-    /** How much of the file is inspected when deciding whether it is text at all. */
-    private static final int CONTENT_SNIFF_LENGTH = 8192;
-
     private static final int MAX_DESCRIPTION_LENGTH = 500;
 
     private final CsvImportProperties properties;
@@ -84,6 +82,7 @@ public class CsvTransactionParser {
                 .setHeader()
                 .setSkipHeaderRecord(true)
                 .setIgnoreHeaderCase(true)
+                .setDuplicateHeaderMode(DuplicateHeaderMode.DISALLOW)
                 .setIgnoreSurroundingSpaces(true)
                 .setIgnoreEmptyLines(true)
                 .setTrim(true)
@@ -170,9 +169,10 @@ public class CsvTransactionParser {
                     "The file is larger than " + properties.getMaxFileSize().toMegabytes() + " MB");
         }
 
-        int sniffLength = Math.min(content.length, CONTENT_SNIFF_LENGTH);
-        for (int index = 0; index < sniffLength; index++) {
-            if (content[index] == 0) {
+        // PostgreSQL text columns cannot store NUL, even when it appears well
+        // beyond the first few kilobytes of an otherwise valid upload.
+        for (byte value : content) {
+            if (value == 0) {
                 throw ImportRejectedException.invalid("The file does not look like a text CSV file");
             }
         }

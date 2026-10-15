@@ -48,7 +48,6 @@ export default function BudgetsPage() {
       <header className="page-header">
         <div className="page-header__text">
           <h1>Budgets</h1>
-          <p>Monthly limits per category. Spending is always calculated from your transactions.</p>
         </div>
         <Field label="Month" htmlFor="budget-month">
           <input
@@ -56,10 +55,14 @@ export default function BudgetsPage() {
             className="input"
             type="month"
             value={month}
-            onChange={(event) => setMonth(event.target.value)}
+            onChange={(event) => {
+              if (event.target.value) setMonth(event.target.value)
+            }}
           />
         </Field>
       </header>
+
+      <p className="subtle">Budget totals assume one transaction currency because exchange rates are not applied.</p>
 
       <div className="stack">
         <Card title={`Add a budget for ${formatMonth(month)}`}>
@@ -106,6 +109,7 @@ export default function BudgetsPage() {
 
         {isLoading ? <LoadingState /> : null}
         {error ? <ErrorState error={error} onRetry={() => void refetch()} /> : null}
+        {deleteBudget.error ? <Alert variant="error">{errorMessage(deleteBudget.error)}</Alert> : null}
 
         {budgets && budgets.length === 0 ? (
           <EmptyState
@@ -125,6 +129,7 @@ export default function BudgetsPage() {
                       type="button"
                       className="button button--ghost button--small"
                       onClick={() => deleteBudget.mutate(budget.id)}
+                      disabled={deleteBudget.isPending}
                       aria-label={`Delete ${budget.categoryName} budget`}
                     >
                       ✕

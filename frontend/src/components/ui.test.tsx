@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { ProgressBar, errorMessage } from './ui'
+import { Field, ProgressBar, errorMessage } from './ui'
 import { ApiError } from '../api/client'
 
 describe('ProgressBar', () => {
@@ -10,13 +10,14 @@ describe('ProgressBar', () => {
   })
 
   // Over-budget must stay visible without breaking the layout: the bar caps at
-  // 100% width but the accessible value keeps the true number.
+  // 100% width; the full percentage is exposed as accessible text.
   it('caps the fill width at 100% when a budget is exceeded', () => {
     const { container } = render(<ProgressBar percentage={132.4} />)
     const fill = container.querySelector('.progress__fill') as HTMLElement
     expect(fill.style.width).toBe('100%')
     expect(fill.className).toContain('progress__fill--over')
-    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '132')
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100')
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuetext', '132% of budget used')
   })
 
   it('treats a null percentage as zero rather than crashing', () => {
@@ -24,6 +25,12 @@ describe('ProgressBar', () => {
     const fill = container.querySelector('.progress__fill') as HTMLElement
     expect(fill.style.width).toBe('0%')
   })
+})
+
+it('associates validation errors with their input', () => {
+  render(<Field label="Amount" htmlFor="amount" error="Enter a nonzero amount."><input id="amount" /></Field>)
+  expect(screen.getByLabelText('Amount')).toHaveAttribute('aria-invalid', 'true')
+  expect(screen.getByLabelText('Amount')).toHaveAccessibleDescription('Enter a nonzero amount.')
 })
 
 describe('errorMessage', () => {

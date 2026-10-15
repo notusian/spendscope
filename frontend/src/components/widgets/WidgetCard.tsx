@@ -27,9 +27,11 @@ import type { AnalyticsQuery, Widget } from '../../api/types'
 export default function WidgetCard({
   widget,
   onRemove,
+  isRemoving = false,
 }: {
   widget: Widget
   onRemove?: (widget: Widget) => void
+  isRemoving?: boolean
 }) {
   const title = widget.configuration.title ?? defaultTitleFor(widget)
 
@@ -38,6 +40,7 @@ export default function WidgetCard({
       type="button"
       className="button button--ghost button--small"
       onClick={() => onRemove(widget)}
+      disabled={isRemoving}
       aria-label={`Remove ${title} widget`}
       title="Remove widget"
     >
@@ -108,7 +111,7 @@ function AnalyticsWidget({ widget }: { widget: Widget }) {
           <div className="metric-caption">
             {data.previousTotal === null
               ? 'No comparison available'
-              : `vs ${formatCurrency(data.previousTotal, currency)} previously`}
+              : `The previous period total was ${formatMetricValue(widget, data.previousTotal, currency)}.`}
           </div>
         </div>
       )
@@ -272,7 +275,7 @@ function AnomaliesWidget() {
   if (isLoading) return <LoadingState />
   if (error) return <ErrorState error={error} onRetry={() => void refetch()} />
   if (!data || data.length === 0) {
-    return <EmptyState title="Nothing unusual this month" description="Spending is in line with your normal range." />
+    return <EmptyState title="No unusual spending detected" />
   }
 
   return (
@@ -297,7 +300,7 @@ function AnomaliesWidget() {
 // ---------------------------------------------------- recent transactions
 
 function RecentTransactionsWidget({ limit }: { limit: number }) {
-  const { data, isLoading, error, refetch } = useTransactions({ page: 0, size: limit, sort: 'date' })
+  const { data, isLoading, error, refetch } = useTransactions({ page: 0, size: limit, sort: 'date', direction: 'desc' })
 
   if (isLoading) return <LoadingState />
   if (error) return <ErrorState error={error} onRetry={() => void refetch()} />

@@ -3,11 +3,8 @@ import { useEffect, useState } from 'react'
 /**
  * Reads the chart palette out of the CSS custom properties.
  *
- * Recharts needs real colour strings: `fill="var(--chart-1)"` does not resolve,
- * because SVG presentation attributes are not parsed as CSS values. Rather than
- * duplicating the palette in TypeScript and letting the two drift, this reads
- * the computed values from the stylesheet - so light and dark mode stay in sync
- * with one definition in global.css.
+ * Resolving the CSS tokens here keeps SVG colours and HTML tooltips in sync
+ * when the selected theme or the system colour preference changes.
  */
 
 const PALETTE_SIZE = 8
@@ -35,8 +32,14 @@ export function useChartPalette(): string[] {
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)')
     const update = () => setPalette(readPalette())
+    const observer = new MutationObserver(update)
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
     media.addEventListener('change', update)
-    return () => media.removeEventListener('change', update)
+    update()
+    return () => {
+      media.removeEventListener('change', update)
+      observer.disconnect()
+    }
   }, [])
 
   return palette

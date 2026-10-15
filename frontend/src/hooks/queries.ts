@@ -20,14 +20,7 @@ import type {
   WidgetInput,
 } from '../api/types'
 
-/**
- * Server state lives here, in TanStack Query, and nowhere else.
- *
- * No component copies API data into `useState`. That duplication is what makes
- * UIs go stale: two sources of truth, one of which nobody remembers to update.
- * Mutations invalidate the query keys they affect and the affected views
- * refetch themselves.
- */
+/** Query hooks own cached server data; mutations invalidate every affected view. */
 
 export const queryKeys = {
   accounts: (includeArchived: boolean) => ['accounts', { includeArchived }] as const,
@@ -79,7 +72,10 @@ export function useUpdateAccount() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ id, input }: { id: number; input: AccountInput }) => accountsApi.update(id, input),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['accounts'] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      invalidateTransactionDependents(queryClient)
+    },
   })
 }
 

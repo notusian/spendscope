@@ -19,6 +19,7 @@ class CsvValueParsersTest {
             "01/08/2026, 2026-08-01",
             "01-08-2026, 2026-08-01",
             "2026/08/01, 2026-08-01",
+            "29/02/2024, 2024-02-29",
             "'  2026-08-01  ', 2026-08-01",
     })
     @DisplayName("accepts the documented date formats")
@@ -27,7 +28,8 @@ class CsvValueParsersTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"not-a-date", "32/01/2026", "2026-13-01", "", "   "})
+    @ValueSource(strings = {"not-a-date", "32/01/2026", "2026-13-01", "", "   ",
+            "29/02/2026", "31/04/2026", "31-04-2026", "2026/02/29"})
     @DisplayName("rejects anything it cannot parse unambiguously")
     void rejectsBadDates(String raw) {
         assertThatThrownBy(() -> CsvValueParsers.parseDate(raw)).isInstanceOf(CsvRowException.class);
@@ -85,6 +87,29 @@ class CsvValueParsersTest {
         assertThatThrownBy(() -> CsvValueParsers.parseAmount("99999999999999999999.00"))
                 .isInstanceOf(CsvRowException.class)
                 .hasMessageContaining("too large");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"0.00001", "-0.000049", "1e-2147483647"})
+    void rejectsAmountsThatWouldRoundToZero(String raw) {
+        assertThatThrownBy(() -> CsvValueParsers.parseAmount(raw))
+                .isInstanceOf(CsvRowException.class)
+                .hasMessageContaining("must not be zero");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"999999999999999.99995", "-999999999999999.99995", "99e2147483647"})
+    void rejectsAmountsThatOverflowTheStoredPrecision(String raw) {
+        assertThatThrownBy(() -> CsvValueParsers.parseAmount(raw))
+                .isInstanceOf(CsvRowException.class)
+                .hasMessageContaining("too large");
+    }
+
+    @Test
+    void acceptsTheSmallestAndLargestStoredAmounts() {
+        assertThat(CsvValueParsers.parseAmount("0.00005")).isEqualByComparingTo("0.0001");
+        assertThat(CsvValueParsers.parseAmount("999999999999999.99994"))
+                .isEqualByComparingTo("999999999999999.9999");
     }
 
     @Test

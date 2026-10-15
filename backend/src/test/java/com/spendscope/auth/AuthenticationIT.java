@@ -100,10 +100,25 @@ class AuthenticationIT extends AbstractIntegrationTest {
     @Test
     @DisplayName("rejects a password longer than BCrypt can actually hash")
     void rejectsOverlongPassword() throws Exception {
-        // Beyond 72 bytes BCrypt silently ignores the rest, so accepting it
-        // would give the user a false sense of strength.
+        // Validation must reject the input before it reaches BCrypt.
         mockMvc.perform(authRequest("/api/auth/register",
                         Map.of("email", "long@example.com", "password", "x".repeat(100))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors.password").exists());
+    }
+
+    @Test
+    @DisplayName("validates Unicode passwords against the encoded byte limit")
+    void validatesUnicodePasswordBytes() throws Exception {
+        String password = "界".repeat(24);
+        mockMvc.perform(authRequest("/api/auth/register",
+                        Map.of("email", "unicode@example.com", "password", password)))
+                .andExpect(status().isCreated());
+        mockMvc.perform(authRequest("/api/auth/login",
+                        Map.of("email", "unicode@example.com", "password", password)))
+                .andExpect(status().isOk());
+        mockMvc.perform(authRequest("/api/auth/register",
+                        Map.of("email", "oversized@example.com", "password", password + "a")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.fieldErrors.password").exists());
     }

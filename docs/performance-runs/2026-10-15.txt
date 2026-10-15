@@ -1,0 +1,29 @@
+Run date: 2026-10-15
+Source: the refinement commit containing this report.
+Environment: macOS arm64, Homebrew OpenJDK 21.0.12.1, PostgreSQL 17.11.
+Backend: Spring Boot 3.5.16, local profile, existing development database.
+Method: one script execution against loopback HTTP; read medians use five requests.
+This is a development observation, not a capacity or production latency claim.
+
+SpendScope API benchmark
+Dataset: 10000 rows, 2023-09-06 through 2026-09-04
+API: http://localhost:8080/api
+Read timings are medians of five serial requests.
+
+CSV import (10000 rows verified)                 1404.71 ms
+CSV re-import (all duplicates verified)           427.81 ms
+First transaction page (25 rows)                   12.57 ms
+Transaction page at offset 5,000                   17.98 ms
+Transaction search (fairprice)                     20.12 ms
+Transaction filter (dataset final 365 days)         9.91 ms
+Summary (dataset final partial month)              30.17 ms
+Summary (dataset final 365 days)                   33.12 ms
+Category aggregation (dataset final 365 days)      23.74 ms
+Merchant aggregation (dataset final 365 days)      22.95 ms
+Monthly aggregation (entire dataset)               30.43 ms
+Daily aggregation (dataset final 90 days)          24.33 ms
+Budget progress (one budget, 2026-09)              10.72 ms
+Recurring detection (current 12-month window)      19.35 ms
+Anomalies (current month and baseline)              8.07 ms
+
+Insight endpoints use the server clock; their windows may extend beyond the dataset.

@@ -9,15 +9,6 @@ import WidgetCard from '../components/widgets/WidgetCard'
 import { Alert, Card, EmptyState, ErrorState, Field, LoadingState, errorMessage } from '../components/ui'
 import type { ChartType, GroupBy, PeriodType, Widget, WidgetInput, WidgetSize, WidgetType } from '../api/types'
 
-/**
- * The customisable dashboard.
- *
- * Layout is persisted per user, so it survives logout and a different device.
- * Reordering is by position field rather than drag-and-drop: the spec calls
- * drag-and-drop optional, and move-up/move-down is keyboard accessible for
- * free while a drag handle is not.
- */
-
 const WIDGET_TYPE_OPTIONS: { value: WidgetType; label: string; groupBy: GroupBy | null; chart: ChartType }[] = [
   { value: 'TOTAL_SPENDING', label: 'Total spending', groupBy: null, chart: 'NUMBER' },
   { value: 'TOTAL_SPENDING', label: 'Spending change', groupBy: null, chart: 'CHANGE' },
@@ -88,18 +79,20 @@ export default function DashboardPage() {
       <header className="page-header">
         <div className="page-header__text">
           <h1>Dashboard</h1>
-          <p>Your spending at a glance. Add, remove and resize cards to suit you.</p>
         </div>
         <div className="row">
           <button
             type="button"
             className="button button--secondary"
             onClick={() => setIsCustomising((current) => !current)}
+            aria-expanded={isCustomising}
           >
             {isCustomising ? 'Done' : 'Customise'}
           </button>
         </div>
       </header>
+
+      <p className="subtle">Combined totals assume one transaction currency because exchange rates are not applied.</p>
 
       {isCustomising ? (
         <Card title="Add a widget" className="stack" >
@@ -150,7 +143,7 @@ export default function DashboardPage() {
               </select>
             </Field>
 
-            <button type="button" className="button" onClick={handleAdd} disabled={createWidget.isPending}>
+            <button type="button" className="button" onClick={handleAdd} disabled={createWidget.isPending || resetDashboard.isPending}>
               {createWidget.isPending ? 'Adding…' : 'Add widget'}
             </button>
 
@@ -158,7 +151,7 @@ export default function DashboardPage() {
               type="button"
               className="button button--secondary"
               onClick={() => resetDashboard.mutate()}
-              disabled={resetDashboard.isPending}
+              disabled={resetDashboard.isPending || createWidget.isPending || deleteWidget.isPending}
             >
               Reset to defaults
             </button>
@@ -167,6 +160,8 @@ export default function DashboardPage() {
       ) : null}
 
       <div style={{ marginTop: 'var(--space-4)' }}>
+        {deleteWidget.error ? <Alert variant="error">{errorMessage(deleteWidget.error)}</Alert> : null}
+        {resetDashboard.error ? <Alert variant="error">{errorMessage(resetDashboard.error)}</Alert> : null}
         {isLoading ? <LoadingState /> : null}
         {error ? <ErrorState error={error} onRetry={() => void refetch()} /> : null}
 
@@ -175,7 +170,7 @@ export default function DashboardPage() {
             title="Your dashboard is empty"
             description="Add a widget, or restore the default layout."
             action={
-              <button type="button" className="button" onClick={() => resetDashboard.mutate()}>
+              <button type="button" className="button" disabled={resetDashboard.isPending} onClick={() => resetDashboard.mutate()}>
                 Restore defaults
               </button>
             }
@@ -189,6 +184,7 @@ export default function DashboardPage() {
                 key={widget.id}
                 widget={widget}
                 onRemove={isCustomising ? handleRemove : undefined}
+                isRemoving={deleteWidget.isPending || resetDashboard.isPending}
               />
             ))}
           </div>

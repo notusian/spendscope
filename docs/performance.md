@@ -1,191 +1,120 @@
 # Performance
 
-Every number in this document was measured on a real run. Nothing here is
-estimated, extrapolated or aspirational. Where a measurement is unflattering or
-ambiguous, it is reported as measured and the caveat is stated.
+`scripts/measure-performance.sh` exercises the API against generated data. It
+is a development benchmark, not a load test: serial requests to a local server
+do not establish concurrent-user capacity or deployment latency.
 
-## How to reproduce
+## Run the benchmark
+
+Use a development database that can retain benchmark records. The script creates
+a new user and account, so it leaves data behind after a run.
+
+From the repository root, generate the dataset and start PostgreSQL:
 
 ```bash
-# 1. Generate the 10,000 row dataset (gitignored; regenerate on demand)
 python3 scripts/generate_sample_data.py --performance
+docker compose up -d db
+```
 
-# 2. Start PostgreSQL and the backend
-docker compose up -d db          # or a local PostgreSQL on :5432
-./scripts/run-backend.sh &
+Start the backend in a separate terminal:
 
-# 3. Measure
+```bash
+cd backend
+mvn spring-boot:run -Dspring-boot.run.profiles=local
+```
+
+Once the health endpoint responds, run the benchmark:
+
+```bash
 ./scripts/measure-performance.sh
 ```
 
-The script registers its own user, imports the dataset into a fresh account and
-times each operation over HTTP, so the figures include JSON serialisation,
-Spring's filter chain and the database round trip — not just query time.
-Read operations are reported as the **median of five calls**, which damps JIT
-warm-up and scheduler noise. Import figures are single runs, because importing
-the same file twice is a different code path by design.
+The default API address is `http://localhost:8080/api`; set `BASE` to use another
+instance. Record the commit, run date, Java and PostgreSQL versions, machine,
+dataset dates, and complete script output alongside any results. Running against
+a different instance also changes network and database latency.
 
-## Environment
+The script uses curl's transfer duration, fails on HTTP error responses, and
+removes temporary cookie and response files when it exits. It verifies that the
+fresh import accepted every row and that the second import reports every row as
+a duplicate. It also creates a grocery budget in the dataset's final month
+before measuring budget progress.
 
-| | |
-|---|---|
-| Machine | Apple M4 Pro, 12 cores, 24 GB RAM |
-| OS | macOS 26.5 |
-| JDK | Temurin 21.0.12.1 |
-| PostgreSQL | 17.11 (Homebrew), local, default configuration |
-| Backend | Spring Boot 3.5.16, `local` profile, run via `spring-boot:run` |
-| Client | `curl` over loopback |
+Filtered reads and custom analytics ranges derive their dates from the CSV
+rather than fixed calendar literals. The recurring and anomaly endpoints still
+use the server clock, so their current windows can contain less data as the
+fixed sample ages. Their output should not be interpreted as evidence that
+those detectors found a pattern.
 
-This is a developer laptop with the database on the same machine. A deployed
-setup pays real network latency to a managed database, which will dominate
-these numbers for the small queries. Treat the figures as a measure of the
-application's own work, not as a latency SLA.
+The import and duplicate-import paths are separate measurements. Repeating an
+import on the same account does not measure another fresh insert, because the
+fingerprint lookup now finds the previous records. Reads use the median of five
+requests, which is useful for a quick comparison but too small a sample for
+reliable tail latency. Explicit warm-up and repeated independent runs are needed
+for stronger conclusions.
 
-## Dataset
+## Recorded development run
 
-| | |
-|---|---|
-| Rows imported | 10,000 |
-| Time span | 3 years |
-| Distinct merchants | 18 |
-| Total rows in the table at measurement time | 11,583 (across 8 users) |
+The [15 October 2026 run](performance-runs/2026-10-15.txt) records the output
+from one execution of the corrected harness on macOS arm64, Homebrew OpenJDK
+21.0.12.1, and PostgreSQL 17.11. The backend used the local profile and an
+existing development database.
 
-The table holding several users' data matters: it means the user-scoped
-indexes are doing real filtering work rather than scanning a table that happens
-to contain only one user's rows.
+| Operation | Observed time |
+|---|---:|
+| Import 10,000 rows, with counts verified | 1,404.71 ms |
+| Re-import the same file, with duplicate counts verified | 427.81 ms |
+| First transaction page, median of five requests | 12.57 ms |
+| Category aggregation, median of five requests | 23.74 ms |
+| One populated budget, median of five requests | 10.72 ms |
 
-## Results
+The dataset covers 6 September 2023 through 4 September 2026. Recurring and
+anomaly endpoints use the server's current date, so their windows do not match
+the dataset's final month. Their timings do not demonstrate the cost of fully
+populated current-period detection. Database state, warm-up, and the small
+sample size also limit comparisons with another machine or deployment.
 
-### Import
+Earlier undocumented timings have been removed because their harness included
+external clock-process overhead and did not verify HTTP or import results.
 
-| Operation | Measured |
-|---|---|
-| CSV import, 10,000 rows | **1,193 ms** |
-| CSV re-import, all 10,000 rows duplicates | **406 ms** |
+## Inspect query plans separately
 
-About 8,400 rows/second end to end, including parsing, normalisation, merchant
-matching, categorisation, fingerprinting, duplicate lookup and insertion.
+Use `EXPLAIN (ANALYZE, BUFFERS)` with representative parameters and retain the
+complete plan. For example, substitute the benchmark user's ID in this read:
 
-The re-import being three times *faster* is the expected shape: no rows are
-inserted, so the cost is parsing plus the batched fingerprint lookups. It also
-confirms duplicate detection is not doing a query per row — 10,000 individual
-`SELECT`s would be slower than the insert path, not faster.
-
-### Transaction list
-
-| Operation | Measured |
-|---|---|
-| Page 1, 25 rows | **35 ms** |
-| Page 200, 25 rows (deep paging) | **39 ms** |
-| Merchant/description search | **47 ms** |
-| Date range filter | **26 ms** |
-
-Deep paging costs essentially the same as the first page, because
-`idx_transactions_user_date` supplies the ordering and PostgreSQL walks the
-index rather than sorting the whole result set.
-
-### Analytics
-
-| Operation | Measured |
-|---|---|
-| Dashboard summary, this month | **30 ms** |
-| Dashboard summary, this year | **39 ms** |
-| Category aggregation, 1 year | **35 ms** |
-| Merchant aggregation, 1 year | **34 ms** |
-| Monthly aggregation, 3 years | **52 ms** |
-| Daily aggregation, 90 days | **38 ms** |
-
-The summary endpoint runs six aggregate queries and still lands at 30 ms, which
-is the argument for having it be one endpoint rather than six round trips.
-
-### Insights
-
-| Operation | Measured |
-|---|---|
-| Recurring expense detection, 12 months | **42 ms** |
-| Anomaly detection, 7 months | **31 ms** |
-| Budget progress | **29 ms** |
-
-Recurring detection pulls a year of outgoing rows into the JVM and runs the
-grouping there. At 10,000 rows that is comfortably fast; see *Known limits*
-below for where it stops being so.
-
-## Query plans
-
-Measured with `EXPLAIN ANALYZE` against the same dataset, after `ANALYZE
-transactions`.
-
-**Transaction list** — uses the composite index for both filter and ordering:
-
-```
-Limit  (cost=1.34..4.60 rows=25) (actual time=0.031..0.033 rows=25)
-  ->  Incremental Sort  (Sort Key: date DESC, id DESC; Presorted Key: date)
-        ->  Index Scan using idx_transactions_user_date on transactions
+```sql
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT id, date, amount
+FROM transactions
+WHERE user_id = 1
+ORDER BY date DESC, id DESC
+LIMIT 25;
 ```
 
-The `Presorted Key: date` line is the one that matters: the index already
-provides the order, so only the `id` tiebreaker needs sorting, and only within
-one date group.
+Compare the actual rows, estimates, buffer activity, and sort work. The index
+on `(user_id, date)` can support ownership filtering and date ordering, while
+an additional sort may handle the ID tie-breaker. Whether PostgreSQL chooses
+that index depends on table statistics, selectivity, and data size.
 
-**Category aggregation** — index-driven, no sequential scan:
+A sequential scan is not automatically a performance defect. It may be cheaper
+when a query needs much of a small table. Conversely, seeing an index in one
+plan does not prove that all date ranges or users will have similar costs.
+HTTP timing alone cannot establish the number of SQL statements executed.
 
-```
-HashAggregate  (actual time=0.449..0.451 rows=9)
-  Group Key: category_id
-  ->  Bitmap Heap Scan on transactions t  (Heap Blocks: exact=64)
-        ->  Bitmap Index Scan on idx_transactions_user_date  (rows=2273)
-```
+## Scaling questions to measure
 
-**Duplicate detection** — the fingerprint index resolves in microseconds:
-
-```
-Index Scan using idx_transactions_user_fingerprint on transactions
-  Index Cond: ((user_id = 9) AND (fingerprint = 'abc123'))
-Execution Time: 0.046 ms
-```
-
-No query in the measured set falls back to a sequential scan on
-`transactions`.
-
-## What was deliberately not optimised
-
-No performance problem showed up that justified a fix, so nothing was tuned
-speculatively. Specifically, none of the following were added, because at this
-data size they would be complexity without measurable benefit:
-
-- a caching layer,
-- materialised views or summary tables for analytics,
-- a read replica,
-- cursor-based (keyset) pagination.
-
-The one N+1 that *was* fixed — loading account and category names once per page
-rather than twice per row — was fixed because it is a correctness-of-design
-issue that gets worse linearly, not because a measurement demanded it.
-
-## Known limits
-
-These are the points where the current design would need work. None of them is
-reached by the measured dataset; they are stated so the ceiling is known rather
-than discovered later.
-
-1. **Recurring detection loads a year of rows into memory.** At ~10,000 rows
-   per year it is fine. A user with 100,000 transactions a year would make this
-   the slowest endpoint in the application. The fix is to push the grouping
-   into SQL, or to cap the merchants considered.
-
-2. **Offset pagination degrades at very deep offsets.** Page 200 was flat here,
-   but offset paging is `O(offset)` in principle. Keyset pagination is the
-   answer if anyone ever pages that far, and nobody does.
-
-3. **The import runs in one transaction.** 10,000 rows in ~1.2 s is a short
-   transaction. A 500,000 row file would hold locks and memory for a long time
-   and should be chunked or moved to a background job.
-
-4. **Analytics are computed on every request.** There is no caching. At 30-50 ms
-   that is the right trade — cached analytics that lag a just-imported statement
-   would be a worse product — but a high-traffic deployment would want a short
-   TTL on the summary endpoint.
-
-5. **Measured on loopback with a warm database.** Cold-cache and
-   network-attached-database numbers will be higher. The relative shape of the
-   results should hold; the absolute values will not.
+- Recurring detection loads outgoing payments from the lookback window into
+  memory. Measure its allocation and runtime as payment count and merchant
+  variety increase; a date bound is not a row-count bound.
+- Offset pagination still skips earlier rows. Similar timings for two pages in
+  a small dataset do not establish constant cost at large offsets. Keyset
+  pagination is an option if measured navigation patterns justify it.
+- Imports run in one transaction and currently reject files over 10,000 rows.
+  Supporting larger files would require measuring memory, transaction duration,
+  and failure recovery before changing the limit.
+- Dashboard aggregates are computed for each request, and budgets issue a
+  spending query per budget. Measure realistic widget and budget counts before
+  deciding whether grouped queries, caching, or summary tables are appropriate.
+- Public deployment measurements should include concurrent requests, database
+  network latency, cold and warm runs, and latency percentiles. Single-user
+  loopback results cannot substitute for those tests.

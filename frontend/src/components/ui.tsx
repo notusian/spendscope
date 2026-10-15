@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { cloneElement, isValidElement, type ReactNode } from 'react'
 import { ApiError } from '../api/client'
 
 /**
@@ -119,9 +119,14 @@ export function Field({
       <label className="field__label" htmlFor={htmlFor}>
         {label}
       </label>
-      {children}
+      {isValidElement<{ 'aria-describedby'?: string; 'aria-invalid'?: boolean }>(children)
+        ? cloneElement(children, {
+            'aria-describedby': [children.props['aria-describedby'], error ? `${htmlFor}-error` : undefined].filter(Boolean).join(' ') || undefined,
+            'aria-invalid': error ? true : children.props['aria-invalid'],
+          })
+        : children}
       {error ? (
-        <span className="field__error" role="alert">
+        <span id={`${htmlFor}-error`} className="field__error" role="alert">
           {error}
         </span>
       ) : null}
@@ -147,14 +152,16 @@ export function Badge({
  * container, but the colour changes so the overspend is still obvious.
  */
 export function ProgressBar({ percentage }: { percentage: number | null }) {
-  const value = percentage ?? 0
+  const value = percentage !== null && Number.isFinite(percentage) ? percentage : 0
   const width = Math.min(Math.max(value, 0), 100)
   const modifier = value > 100 ? ' progress__fill--over' : value >= 80 ? ' progress__fill--near' : ''
   return (
     <div
       className="progress"
       role="progressbar"
-      aria-valuenow={Math.round(value)}
+      aria-label="Budget used"
+      aria-valuenow={Math.round(width)}
+      aria-valuetext={percentage === null ? 'No budget usage available' : `${Math.round(value)}% of budget used`}
       aria-valuemin={0}
       aria-valuemax={100}
     >

@@ -2,6 +2,8 @@ import { type FormEvent, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { Alert, Field, errorMessage, fieldErrorOf } from '../components/ui'
+import Brand from '../components/Brand'
+import ThemeSelect from '../components/ThemeSelect'
 
 /** Mirrors the backend rule, which is the one that actually enforces it. */
 const MIN_PASSWORD_LENGTH = 10
@@ -32,9 +34,10 @@ export default function RegisterPage() {
 
   return (
     <div className="auth-page">
+      <header className="auth-topbar"><Brand /><ThemeSelect /></header>
       <div className="auth-card">
         <h1 className="auth-card__title">Create your account</h1>
-        <p className="auth-card__subtitle">Start tracking where your money goes.</p>
+        <p className="auth-card__subtitle">Use a password with at least ten characters.</p>
 
         {error ? <Alert variant="error">{errorMessage(error)}</Alert> : null}
 
@@ -83,7 +86,7 @@ export default function RegisterPage() {
         </form>
 
         <p className="subtle" style={{ marginTop: 'var(--space-4)', textAlign: 'center' }}>
-          Already have an account? <Link to="/login">Log in</Link>
+          <Link to="/login">Log in to an existing account</Link>
         </p>
       </div>
     </div>

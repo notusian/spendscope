@@ -1,245 +1,148 @@
 # Architecture
 
-## Shape of the system
+SpendScope has one Spring Boot backend, a static React frontend, and a PostgreSQL
+database. The supplied development and Compose setups expose the API through
+the frontend's origin, which keeps session cookies and CSRF token access within
+the same browser origin.
 
 ```mermaid
 flowchart LR
-    Browser["Browser<br/>React + TypeScript SPA"]
-    Nginx["nginx<br/>static files + /api proxy"]
-    API["Spring Boot<br/>modular monolith"]
-    DB[("PostgreSQL 17")]
-
-    Browser -- HTTPS --> Nginx
-    Nginx -- "/" --> Browser
-    Nginx -- "/api/*" --> API
-    API -- "TLS, JDBC" --> DB
+    Browser[React and TypeScript] --> Proxy[Vite or nginx]
+    Proxy -->|/api| API[Spring Boot]
+    API -->|JDBC| DB[(PostgreSQL)]
 ```
 
-One deployable backend, one static frontend bundle, one database. The frontend
-is served by nginx, which also proxies `/api` to the backend so that the browser
-only ever talks to a single origin — that is what keeps the session cookie
-simple (no cross-site cookie rules, no CORS preflight on every request).
+Compose uses HTTP locally. HTTPS termination and database transport encryption
+are deployment responsibilities; neither is provided by this diagram or enabled
+by the local Compose file.
 
-A split-origin deployment — static frontend on a CDN, API on its own hostname —
-is also supported, and is why CORS is configured properly rather than disabled.
-See [security.md](security.md).
+## Domain structure
 
-## Backend: a modular monolith
-
-The backend is organised by **domain**, not by technical layer. There is no
-top-level `controllers/`, `services/`, `repositories/` split; each domain owns
-its own controller, service, repository, entity and DTOs.
+The backend packages group related controllers, services, repositories,
+entities, and request/response records by domain:
 
 ```
 com.spendscope
-├── auth            registration, login, logout, password change
-├── user            the User entity and its lookups
-├── security        Spring Security config, principal, CSRF, login throttle
-├── account         bank accounts, cards, cash
-├── category        built-in and custom categories
-├── categorization  description normalisation, merchant rules
-├── transaction     the core entity, CRUD, filtering, fingerprinting
-├── importjob       the CSV pipeline
-├── analytics       metrics, periods, grouping, comparison
-├── dashboard       configurable widgets
-├── budget          monthly limits and derived progress
-├── recurring       subscription detection
-├── anomaly         unusual-spending detection
-├── audit           the security activity trail
-├── demo            the throwaway demo environment
-├── common          errors, validation, money, paging
-└── config          clock, OpenAPI
+├── auth, user, security          authentication and access control
+├── account, category, transaction
+├── categorization, importjob    merchant matching and CSV processing
+├── analytics, dashboard, budget
+├── recurring, anomaly           statistical insights
+└── audit, demo, common, config
 ```
 
-### Why a monolith
+This structure keeps the application deployable as one unit while making
+related code easy to find. It does not enforce isolated modules: some services
+use repositories from other packages, including analytics queries over
+transactions and accounts. Extracting a service would require an explicit
+interface and data ownership review.
 
-At this size, microservices would add network calls, partial-failure handling,
-distributed tracing and deployment coordination in exchange for nothing. The
-whole application starts in about 2.5 seconds and is one artifact to deploy.
+Within a typical domain, controllers validate input and obtain the authenticated
+principal. Services enforce ownership and business rules within transaction
+boundaries. Repositories execute queries, and response records expose selected
+fields rather than serialising JPA entities.
 
-The modularity that matters is *internal*: domains talk to each other through
-services, never by reaching into another domain's repository. `TransactionService`
-asks `AccountService.require(userId, accountId)` for an account; it does not
-query `AccountRepository` itself. If a domain ever genuinely needs to be
-extracted, that boundary is already the seam.
-
-### Layering inside a domain
-
-```mermaid
-flowchart TD
-    C["Controller<br/><i>parse, delegate, map status</i>"]
-    S["Service<br/><i>business rules, ownership, transactions</i>"]
-    R["Repository<br/><i>queries, all user-scoped</i>"]
-    E["Entity<br/><i>JPA mapping</i>"]
-    D["DTO<br/><i>the API contract</i>"]
-
-    C -->|"@Valid request"| S
-    S --> R
-    R --> E
-    S -->|maps to| D
-    D --> C
-```
-
-Rules that hold everywhere:
-
-- **Controllers are thin.** They extract the principal, call one service method
-  and map the result to a status code. No business logic, no queries.
-- **Entities never leave the service layer.** Every response is a DTO record.
-  This is what structurally guarantees a password hash cannot be serialised.
-- **Services own transactions.** `@Transactional` lives on service methods, so a
-  unit of work is a business operation, not an HTTP request.
-- **Repositories are user-scoped.** See the authorisation model below.
-
-## Authentication flow
+## Authentication and ownership
 
 ```mermaid
 sequenceDiagram
     participant B as Browser
-    participant A as AuthController
-    participant S as AuthService
-    participant M as AuthenticationManager
-    participant D as Database
-
-    B->>A: GET /api/auth/csrf
-    A-->>B: Set-Cookie: XSRF-TOKEN (readable by JS)
-
-    B->>A: POST /api/auth/login<br/>+ X-XSRF-TOKEN header
-    A->>S: login(request)
-    S->>S: throttle check (email + IP)
-    S->>M: authenticate(email, password)
-    M->>D: load user by email
-    D-->>M: user + BCrypt hash
-    M-->>S: Authentication (or BadCredentials)
-    S->>S: rotate session id
-    S->>S: save SecurityContext to session
-    S->>D: audit LOGIN_SUCCESS
-    A-->>B: 200 + Set-Cookie: JSESSIONID (HttpOnly)
-
-    B->>A: GET /api/transactions<br/>(cookie sent automatically)
-    A-->>B: only this user's rows
+    participant A as AuthService
+    participant S as Spring Security
+    participant D as PostgreSQL
+    B->>S: GET /api/auth/csrf
+    S-->>B: XSRF-TOKEN cookie
+    B->>A: POST /api/auth/login + CSRF header
+    A->>A: Check login throttle
+    A->>S: Authenticate email and password
+    S->>D: Load user and password hash
+    S-->>A: Authenticated principal
+    A->>S: Rotate session ID and save security context
+    A-->>B: User response and session cookie
+    B->>S: GET /api/transactions + session cookie
+    S-->>B: Response scoped to the authenticated user
 ```
 
-The order inside `login` is deliberate: throttle, authenticate, **rotate the
-session id**, then save the context. Rotating before saving is what defeats
-session fixation.
-
-## Authorisation model
-
-There are no roles. Every user is the same kind of user, and authorisation is
-entirely about **data ownership**.
-
-The rule is enforced in the query, not after it:
+Authentication establishes who made the request; authorisation determines which
+records that person can access. Resource lookups therefore combine the resource
+ID with the user ID obtained from the authenticated principal:
 
 ```java
-// Not this. The row is loaded before anyone checks who owns it, and a
-// forgotten check leaks it.
-transactionRepository.findById(id);
-
-// This. The user id is part of the WHERE clause, so another user's row is
-// never loaded into memory at all.
-transactionRepository.findByIdAndUserId(id, authenticatedUserId);
+transactionRepository.findByIdAndUserId(transactionId, authenticatedUserId);
 ```
 
-Three properties make this hold in practice:
+The same ownership check applies when attaching a transaction to an account or
+category. Unknown IDs and inaccessible private records return 404. Built-in
+categories are a separate shared case: users may read them but cannot edit them.
+`CrossUserAccessIT` exercises these boundaries through the HTTP API.
 
-1. **The user id comes from the session**, read off the authenticated principal —
-   never from a path variable, query parameter or request body.
-2. **Every service method takes `userId` as its first argument.** An unscoped
-   call is visibly wrong at the call site rather than something a reviewer has
-   to notice by absence.
-3. **A missing row and someone else's row both return 404.** Returning 403 for
-   "exists but is not yours" would let an attacker enumerate valid ids.
-
-`CrossUserAccessIT` asserts this endpoint by endpoint, including that Bob cannot
-attach his transaction to Alice's account or import a CSV into it.
-
-## CSV import pipeline
+## CSV import
 
 ```mermaid
 flowchart TD
-    U["Upload<br/><i>multipart/form-data</i>"] --> O["Ownership check<br/><i>is this account yours?</i>"]
-    O --> V["File validation<br/><i>size, UTF-8, not binary</i>"]
-    V --> P["CSV parsing<br/><i>Apache Commons CSV</i>"]
-    P --> RV["Row validation<br/><i>date, amount, description</i>"]
-    RV --> N["Description normalisation"]
-    N --> M["Merchant detection<br/><i>rule match</i>"]
-    M --> CAT["Categorisation"]
-    CAT --> F["Fingerprint"]
-    F --> D["Duplicate detection<br/><i>batched lookup + in-file set</i>"]
-    D --> I["Batch insert"]
-    I --> SUM["Summary + ImportJob record"]
-
-    RV -.->|"one bad row"| ERR["Collected as a row error"]
-    ERR -.-> SUM
+    Upload[Multipart upload] --> Ownership[Validate account ownership]
+    Ownership --> Parse[Read and validate CSV]
+    Parse --> Normalise[Normalise descriptions and match merchants]
+    Normalise --> Fingerprint[Calculate fingerprints]
+    Fingerprint --> Lookup[Check stored and in-file duplicates]
+    Lookup --> Save[Save accepted transactions and import summary]
+    Parse --> Errors[Collect row errors]
+    Errors --> Save
 ```
 
-Two design points worth calling out:
+The service checks account ownership before reading the upload content. The web
+server has already received the multipart request at that point. The parser
+checks encoding, required columns, dates, and amounts; a bad data row is reported
+without discarding the other valid rows. Structural file errors reject the
+request. The accepted rows and import summary share a database transaction.
 
-- **The ownership check happens before the file is read.** No work is done on a
-  file destined for someone else's account.
-- **A bad row is a bad row, not a bad file.** Row-level failures are collected
-  and reported with line numbers; the valid rows around them still import.
-
-The whole import runs in one transaction: either the accepted rows and the job
-record are both written, or neither is.
-
-### Duplicate detection
-
-Bank statements have no stable transaction id, so identity is derived:
+Fingerprints use the following fields:
 
 ```
-SHA-256( userId | accountId | date | normalisedDescription | amount | currency )
+SHA-256(userId | accountId | date | normalisedDescription | amount | currency)
 ```
 
-The normalised description is used so cosmetic differences between two exports
-of the same row produce the same fingerprint. The amount is scaled first, so
-`7.2` and `7.2000` agree.
+Normalisation makes cosmetic description differences less likely to prevent a
+match, and a fixed decimal scale gives `7.2` and `7.2000` the same representation.
+Stored fingerprints are queried in chunks, while a set handles repetitions in
+the current file. This avoids a lookup for each CSV row.
 
-The column is indexed but **not unique**: buying the same coffee twice on one
-day is legitimate. Duplicates are reported, never silently dropped or
-overwritten.
+The fingerprint index is non-unique because manual entry may represent two
+identical purchases. Import duplicate detection is consequently a heuristic:
+it can skip legitimate identical purchases, and concurrent imports are not
+serialised by a uniqueness constraint. Existing rows are not overwritten.
 
-## Analytics pipeline
+Only parsed transactions and import metadata are retained by the application.
+The servlet container may use temporary files while receiving multipart uploads;
+this is different from retaining a statement as application data.
 
-```mermaid
-flowchart LR
-    REQ["AnalyticsQueryRequest<br/>metric · period · groupBy · comparison"]
-    PR["PeriodResolver<br/><i>→ concrete date ranges</i>"]
-    AGG["Aggregate query<br/><i>SUM/COUNT in PostgreSQL</i>"]
-    CMP["Comparison join<br/><i>current vs previous by key</i>"]
-    RES["AnalyticsResponse<br/>total · previousTotal · change · points"]
+## Analytics and dashboard configuration
 
-    REQ --> PR --> AGG --> CMP --> RES
-```
+`PeriodResolver` turns named periods into inclusive date ranges. `AnalyticsService`
+uses database aggregates for totals and groupings, then maps query results into
+response records. Average daily spending includes quiet days in the denominator,
+and time series insert zero-valued buckets where no outgoing transactions exist.
 
-All aggregation happens **in the database**. Pulling a year of transactions into
-the JVM to sum them works at a thousand rows and falls over at a hundred
-thousand.
+Spending is the positive magnitude of negative amounts. Positive entries,
+including refunds, contribute to income and net flow rather than reducing the
+spending metric. Percentages with a zero baseline are `null`, because a relative
+change from zero has no finite value.
 
-A widget is a saved analytics request. That is why the dashboard is
-configurable without any new backend code: adding a widget type is a row in
-`dashboard_widgets`, not an endpoint.
+Calendar comparisons use the corresponding part of the previous month or year;
+completed months compare with complete previous months. Rolling and custom
+ranges compare with the immediately preceding range of equal length. An
+injected `Clock` makes month boundaries and leap years reproducible in tests.
 
-### The period comparison rule
+Most widgets store a metric, period, grouping, and presentation settings, which
+the frontend turns into a request to `/api/analytics/query`. Budgets, recurring
+payments, anomalies, and recent transactions use their own endpoints. Existing
+widget types can be configured without adding endpoints, but a new metric or
+widget type can still require backend enums, validation, and frontend rendering.
 
-The obvious implementation is wrong. On 5 September, "this month" covers five
-days; comparing it against the whole of August would report a ~90% drop in
-spending on the 5th of every month, forever.
+## Persistence
 
-- **Calendar periods** (this month, last month, this year) compare against *the
-  same slice* of the preceding calendar period: 1–5 September against
-  1–5 August.
-- **Rolling windows** (last 30/90 days, custom) compare against the equally long
-  window immediately before them.
-
-A percentage change is `null` — never `Infinity`, never `NaN` — whenever the
-previous total is zero or absent. The API documents `null` as "no comparison
-available", and the UI renders it as an em dash rather than as `0%`, which would
-falsely claim spending was flat.
-
-## Database
-
-Eight tables, created by eight Flyway migrations.
+Flyway migrations create the schema, and Hibernate validates entity mappings
+at startup. The principal relationships are:
 
 ```mermaid
 erDiagram
@@ -249,69 +152,38 @@ erDiagram
     users ||--o{ dashboard_widgets : owns
     users ||--o{ import_jobs : owns
     users ||--o{ audit_events : owns
-    users ||--o{ categories : "owns (custom only)"
+    users ||--o{ categories : "owns custom categories"
     accounts ||--o{ transactions : contains
     categories ||--o{ transactions : classifies
     categories ||--o{ budgets : limits
-    accounts ||--o{ import_jobs : "target of"
+    accounts ||--o{ import_jobs : receives
 ```
 
-Notes on the shape:
+Amounts use `NUMERIC(19,4)`. Ownership is stored as a user ID, and the secondary
+transaction indexes begin with that ID to support user-scoped reads. Shared
+categories have a null owner; partial unique indexes enforce name uniqueness
+separately for shared and user-owned categories.
 
-- **`categories.user_id` is nullable.** `NULL` means one of the twelve built-in
-  categories, shared by every user and editable by none. Two partial unique
-  indexes enforce uniqueness separately for built-ins and for each user's custom
-  set, because a plain `UNIQUE(user_id, name)` would not de-duplicate built-ins
-  (`NULL` never equals `NULL` in SQL).
-- **Money is `NUMERIC(19,4)`**, never `float` or `double`.
-- **`user_id` is a plain column**, not a `@ManyToOne`. Nothing navigates from a
-  transaction to a user object, and a raw id keeps every ownership-scoped query
-  a single-table lookup with no join and no lazy-loading surprise.
-- **Amounts are signed.** Negative is money out. A period total is a plain `SUM`,
-  and a refund correctly cancels the purchase it reverses.
-- **`ON DELETE CASCADE` from `users`** — deleting a user removes everything they
-  own, which is what makes demo-account cleanup a one-line delete.
-- **`ON DELETE SET NULL` from `categories`** — deleting a category must not
-  delete the transactions filed under it.
+Deleting a custom category clears transaction references without deleting the
+transactions. Accounts with transaction history must be archived. User deletion
+cascades through owned data, which supports demo cleanup, although there is no
+user-facing account deletion endpoint.
 
-Every index on `transactions` leads with `user_id`, because no query ever
-crosses users.
+## Frontend state and deployment
 
-## Frontend
+`api/client.ts` sends requests, reads the CSRF token, and maps API failures to a
+typed error. TypeScript describes the expected response shape; it does not
+validate network responses at runtime. TanStack Query caches server responses,
+and mutation hooks invalidate the affected transaction, analytics, and budget
+queries. Local component state handles form drafts and presentation choices.
 
-```
-src/
-├── api/          typed client + endpoint list (the only place fetch is called)
-├── hooks/        TanStack Query hooks, auth context
-├── components/   layout, shared UI, widget renderers
-├── pages/        one component per route
-├── lib/          formatting
-└── styles/       design tokens + component classes
-```
+Route protection improves navigation, while backend ownership checks enforce
+access. The frontend uses a relative `/api` URL and reads its CSRF cookie from
+`document.cookie`, so the supported deployment keeps frontend and API on the
+same origin. A separate API hostname requires changes beyond CORS settings.
 
-- **Server state lives in TanStack Query and nowhere else.** No component copies
-  API data into `useState`. That duplication is what makes UIs go stale.
-- **Auth state is derived from the server.** There is no `isLoggedIn` boolean;
-  the source of truth is `GET /api/auth/me`.
-- **One `fetch` wrapper.** It attaches the CSRF header, sends credentials, turns
-  non-2xx into a typed `ApiError` and notifies the app when a session expires.
-- **Route protection is UX only.** Anyone can edit the JavaScript running in
-  their own browser. The real boundary is the backend.
-
-## Deployment
-
-```mermaid
-flowchart TD
-    U["User"] -->|HTTPS| CDN["Static host / CDN<br/>React bundle"]
-    U -->|HTTPS| API["Container host<br/>Spring Boot image"]
-    API -->|TLS| PG[("Managed PostgreSQL")]
-    API --> LOG["Structured logs<br/>method · path · status · duration"]
-    API --> HC["/actuator/health"]
-```
-
-Production configuration is entirely environment variables: database URL and
-credentials, allowed frontend origin, secure-cookie flag, active profile. No
-secret is committed. Flyway runs on startup; `ddl-auto` is `validate`, so a
-mismatched schema fails fast at boot rather than corrupting data at runtime.
-
-See the README for exact deployment steps.
+The `prod` profile enables secure session cookies, disables OpenAPI, and accepts
+forwarded headers. An HTTPS proxy must strip untrusted forwarded headers, and
+the backend should be reachable only through that trusted proxy. Database
+credentials, TLS, backups, and shared session storage need deployment-specific
+configuration. See [security.md](security.md) for the current limitations.

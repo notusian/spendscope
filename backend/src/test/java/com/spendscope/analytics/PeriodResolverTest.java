@@ -139,6 +139,21 @@ class PeriodResolverTest {
         }
 
         @Test
+        void completedFebruaryIncludesAllOfJanuary() {
+            DateRange february = new DateRange(LocalDate.of(2026, 2, 1), LocalDate.of(2026, 2, 28));
+            DateRange january = resolver.previousOf(PeriodType.LAST_MONTH, february);
+            assertThat(january.start()).isEqualTo(LocalDate.of(2026, 1, 1));
+            assertThat(january.end()).isEqualTo(LocalDate.of(2026, 1, 31));
+        }
+
+        @Test
+        void partialLongMonthClampsToThePreviousMonthsEnd() {
+            DateRange march = new DateRange(LocalDate.of(2026, 3, 1), LocalDate.of(2026, 3, 30));
+            assertThat(resolver.previousOf(PeriodType.THIS_MONTH, march).end())
+                    .isEqualTo(LocalDate.of(2026, 2, 28));
+        }
+
+        @Test
         @DisplayName("a rolling window compares against the window immediately before it")
         void rollingWindowShiftsBack() {
             DateRange current = resolver.resolve(PeriodType.LAST_30_DAYS, null, null);
@@ -156,6 +171,18 @@ class PeriodResolverTest {
 
             assertThat(previous.start()).isEqualTo(LocalDate.of(2025, 1, 1));
             assertThat(previous.end()).isEqualTo(LocalDate.of(2025, 9, 5));
+        }
+
+        @Test
+        void yearComparisonPreservesCalendarDatesAcrossLeapYears() {
+            for (int year : new int[] {2024, 2025}) {
+                DateRange current = new DateRange(LocalDate.of(year, 1, 1), LocalDate.of(year, 3, 1));
+                assertThat(resolver.previousOf(PeriodType.THIS_YEAR, current).end())
+                        .isEqualTo(LocalDate.of(year - 1, 3, 1));
+            }
+            DateRange leapDay = new DateRange(LocalDate.of(2024, 1, 1), LocalDate.of(2024, 2, 29));
+            assertThat(resolver.previousOf(PeriodType.THIS_YEAR, leapDay).end())
+                    .isEqualTo(LocalDate.of(2023, 2, 28));
         }
 
         @Test

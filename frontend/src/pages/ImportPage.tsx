@@ -8,8 +8,9 @@ import type { ImportSummary } from '../api/types'
 const MAX_FILE_SIZE_MB = 5
 
 export default function ImportPage() {
+  const [page, setPage] = useState(0)
   const { data: accounts } = useAccounts()
-  const { data: jobs, isLoading, error, refetch } = useImportJobs()
+  const { data: jobs, isLoading, error, refetch } = useImportJobs(page)
   const importCsv = useImportCsv()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -27,10 +28,15 @@ export default function ImportPage() {
       setUploadError(new Error('Choose an account and a CSV file.'))
       return
     }
+    if (file.size === 0 || file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+      setUploadError(new Error(`Choose a non-empty CSV file no larger than ${MAX_FILE_SIZE_MB} MB.`))
+      return
+    }
 
     try {
       const result = await importCsv.mutateAsync({ accountId: Number(accountId), file })
       setSummary(result)
+      setPage(0)
       setFile(null)
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
@@ -45,7 +51,6 @@ export default function ImportPage() {
       <header className="page-header">
         <div className="page-header__text">
           <h1>Import transactions</h1>
-          <p>Upload a CSV export from your bank. Nothing is saved until every row has been checked.</p>
         </div>
       </header>
 
@@ -60,6 +65,7 @@ export default function ImportPage() {
                   id="import-account"
                   className="select"
                   required
+                  disabled={importCsv.isPending}
                   value={accountId}
                   onChange={(event) => setAccountId(event.target.value)}
                 >
@@ -80,6 +86,7 @@ export default function ImportPage() {
                   type="file"
                   accept=".csv,text/csv,text/plain"
                   required
+                  disabled={importCsv.isPending}
                   onChange={(event) => setFile(event.target.files?.[0] ?? null)}
                 />
               </Field>
@@ -109,8 +116,9 @@ export default function ImportPage() {
 2026-08-03,SPOTIFY,-12.98`}
             </pre>
             <p className="subtle">
-              Negative amounts are spending, positive amounts are income. Dates may be YYYY-MM-DD or
-              DD/MM/YYYY. Maximum {MAX_FILE_SIZE_MB} MB and 10,000 rows.
+              Negative amounts record spending, and positive amounts record income. Dates may use
+              YYYY-MM-DD or DD/MM/YYYY. Files can contain up to {MAX_FILE_SIZE_MB} MB and 10,000 rows;
+              valid rows are imported while duplicates and invalid rows are skipped.
             </p>
           </details>
         </Card>
@@ -123,6 +131,32 @@ export default function ImportPage() {
 
           {jobs && jobs.content.length === 0 ? (
             <EmptyState title="No imports yet" />
+          ) : null}
+
+          {jobs && jobs.totalPages > 1 ? (
+            <div className="row row--between" style={{ marginTop: 'var(--space-3)' }}>
+              <span className="subtle">
+                Page {jobs.page + 1} of {jobs.totalPages}
+              </span>
+              <div className="row">
+                <button
+                  type="button"
+                  className="button button--secondary button--small"
+                  disabled={page === 0}
+                  onClick={() => setPage((current) => current - 1)}
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  className="button button--secondary button--small"
+                  disabled={!jobs.hasNext}
+                  onClick={() => setPage((current) => current + 1)}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
           ) : null}
 
           {jobs && jobs.content.length > 0 ? (
@@ -171,11 +205,11 @@ function ImportSummaryCard({ summary }: { summary: ImportSummary }) {
   return (
     <Card title="Import result">
       <Alert variant={summary.rowsImported > 0 ? 'success' : hasProblems ? 'warning' : 'info'}>
-        Imported {summary.rowsImported} of {summary.rowsProcessed} rows.
+        The import added {summary.rowsImported} of {summary.rowsProcessed} rows.
         {summary.duplicatesDetected > 0
           ? ` ${summary.duplicatesDetected} were already in your history and were skipped.`
           : ''}
-        {summary.rowsRejected > 0 ? ` ${summary.rowsRejected} could not be read.` : ''}
+        {summary.rowsRejected > 0 ? ` ${summary.rowsRejected} failed validation.` : ''}
       </Alert>
 
       {summary.errors.length > 0 ? (

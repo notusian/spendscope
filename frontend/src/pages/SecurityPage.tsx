@@ -15,7 +15,6 @@ export default function SecurityPage() {
       <header className="page-header">
         <div className="page-header__text">
           <h1>Security activity</h1>
-          <p>Recent activity on your account. Only your own events are shown.</p>
         </div>
       </header>
 
@@ -86,9 +85,6 @@ export default function SecurityPage() {
           </>
         ) : null}
 
-        <p className="subtle" style={{ marginTop: 'var(--space-3)' }}>
-          Event details never include passwords, session identifiers or authentication tokens.
-        </p>
       </Card>
     </>
   )

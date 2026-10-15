@@ -127,6 +127,34 @@ class CsvTransactionParserTest {
     }
 
     @Test
+    void rejectsNulBeyondTheFirstEightKilobytes() {
+        String csv = "date,description,amount\n"
+                + "2026-08-01,VALID ROW,-7.20\n".repeat(400)
+                + "2026-08-02,INVALID\0DESCRIPTION,-10.00\n";
+        assertThatThrownBy(() -> parse(csv)).isInstanceOf(ImportRejectedException.class);
+    }
+
+    @Test
+    void rejectsAmbiguousDuplicateHeaders() {
+        assertThatThrownBy(() -> parse("date,description,amount,AMOUNT\n2026-08-01,SHOP,-7.20,-720\n"))
+                .isInstanceOf(ImportRejectedException.class);
+    }
+
+    @Test
+    void isolatesInvalidDatesAndRoundedAmounts() {
+        CsvTransactionParser.ParseResult result = parse("""
+                date,description,amount
+                31/04/2026,INVALID DATE,-10.00
+                2026-08-01,ROUNDS TO ZERO,0.00001
+                2026-08-02,ROUNDS TOO LARGE,999999999999999.99995
+                2026-08-03,VALID,-22.40
+                """);
+        assertThat(result.rows()).hasSize(1);
+        assertThat(result.errors()).hasSize(3);
+        assertThat(result.rowsProcessed()).isEqualTo(4);
+    }
+
+    @Test
     @DisplayName("rejects invalid UTF-8")
     void rejectsInvalidUtf8() {
         byte[] invalid = "date,description,amount\n2026-08-01,".getBytes(StandardCharsets.UTF_8);

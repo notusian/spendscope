@@ -53,7 +53,7 @@ test.describe('SpendScope end-to-end', () => {
 
     // --- 1. Landing page -------------------------------------------------
     await page.goto('/')
-    await expect(page.getByRole('heading', { name: /where your money actually goes/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /understand where your money goes/i })).toBeVisible()
 
     // --- 2. Register (which logs the user straight in) --------------------
     await register(page, email)
@@ -82,7 +82,7 @@ test.describe('SpendScope end-to-end', () => {
     await page.getByRole('button', { name: 'Import' }).click()
 
     // 5 rows in, 5 imported, none rejected.
-    await expect(page.getByText(/Imported 5 of 5 rows/)).toBeVisible()
+    await expect(page.getByText(/The import added 5 of 5 rows/)).toBeVisible()
 
     // --- 5. Transactions were categorised ---------------------------------
     await page.getByRole('link', { name: 'Transactions' }).click()

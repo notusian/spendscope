@@ -1,9 +1,7 @@
 /**
  * TypeScript mirrors of the backend DTOs.
  *
- * Hand written rather than generated: the API surface is small, and a hand
- * written type is a second pair of eyes on the contract. When a backend record
- * changes, the compiler points at every component that read the old field.
+ * These types are maintained alongside the Java response records.
  *
  * Money arrives as a JSON number produced from a Java BigDecimal. It is
  * formatted, never used for arithmetic in the browser - see lib/format.ts.

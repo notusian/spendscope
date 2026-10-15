@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.time.format.ResolverStyle;
 import java.util.List;
 import java.util.Locale;
 
@@ -27,14 +28,20 @@ final class CsvValueParsers {
      */
     private static final List<DateTimeFormatter> DATE_FORMATS = List.of(
             DateTimeFormatter.ISO_LOCAL_DATE,                          // 2026-08-01
-            DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ROOT),    // 01/08/2026
-            DateTimeFormatter.ofPattern("dd-MM-yyyy", Locale.ROOT),    // 01-08-2026
-            DateTimeFormatter.ofPattern("yyyy/MM/dd", Locale.ROOT));   // 2026/08/01
+            strictDateFormat("dd/MM/uuuu"),                           // 01/08/2026
+            strictDateFormat("dd-MM-uuuu"),                           // 01-08-2026
+            strictDateFormat("uuuu/MM/dd"));                          // 2026/08/01
+
+    private static final BigDecimal SMALLEST_ROUNDABLE_AMOUNT = new BigDecimal("0.00005");
 
     /** Currency symbols and grouping separators that may surround an amount. */
     private static final String AMOUNT_NOISE = "[\\s\\u00A0$€£¥₹,'](?!$)";
 
     private CsvValueParsers() {
+    }
+
+    private static DateTimeFormatter strictDateFormat(String pattern) {
+        return DateTimeFormatter.ofPattern(pattern, Locale.ROOT).withResolverStyle(ResolverStyle.STRICT);
     }
 
     static LocalDate parseDate(String raw) {
@@ -88,13 +95,20 @@ final class CsvValueParsers {
         if (parenthesised) {
             amount = amount.abs().negate();
         }
-        if (amount.signum() == 0) {
+        // Reject values that would round to zero before scaling, including
+        // scientific notation with an extremely small exponent.
+        if (amount.abs().compareTo(SMALLEST_ROUNDABLE_AMOUNT) < 0) {
             throw new CsvRowException("Amount must not be zero");
         }
         // Matches the NUMERIC(19,4) column: 15 integer digits and 4 decimals.
+        if ((long) amount.precision() - amount.scale() > 15) {
+            throw new CsvRowException("Amount is too large");
+        }
+        amount = amount.setScale(4, java.math.RoundingMode.HALF_UP);
+        // Rounding can carry into a sixteenth integer digit.
         if (amount.precision() - amount.scale() > 15) {
             throw new CsvRowException("Amount is too large");
         }
-        return amount.setScale(4, java.math.RoundingMode.HALF_UP);
+        return amount;
     }
 }

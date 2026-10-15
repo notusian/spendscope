@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.LinkedHashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -113,7 +114,7 @@ public class DashboardService {
         List<DashboardWidget> widgets = widgetRepository.findByUserIdOrderByPositionAscIdAsc(userId);
         Set<Long> ownedIds = widgets.stream().map(DashboardWidget::getId).collect(java.util.stream.Collectors.toSet());
 
-        if (widgetIdsInOrder.size() != ownedIds.size() || !ownedIds.containsAll(widgetIdsInOrder)) {
+        if (widgetIdsInOrder.size() != ownedIds.size() || !ownedIds.equals(new HashSet<>(widgetIdsInOrder))) {
             throw new BadRequestException("The ordering must list each of your widgets exactly once");
         }
 

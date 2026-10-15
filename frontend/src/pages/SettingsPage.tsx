@@ -14,6 +14,7 @@ import {
   fieldErrorOf,
 } from '../components/ui'
 import { formatCurrency, formatDate } from '../lib/format'
+import ThemeSelect from '../components/ThemeSelect'
 
 export default function SettingsPage() {
   const { user } = useAuth()
@@ -23,11 +24,11 @@ export default function SettingsPage() {
       <header className="page-header">
         <div className="page-header__text">
           <h1>Settings</h1>
-          <p>Your account, your categories and the subscriptions we have detected.</p>
         </div>
       </header>
 
       <div className="stack">
+        <Card title="Appearance"><ThemeSelect /></Card>
         <Card title="Account">
           <div className="row row--between">
             <div>
@@ -143,6 +144,7 @@ function CategoriesCard() {
   return (
     <Card title="Categories">
       {formError ? <Alert variant="error">{errorMessage(formError)}</Alert> : null}
+      {deleteCategory.error ? <Alert variant="error">{errorMessage(deleteCategory.error)}</Alert> : null}
 
       <form onSubmit={handleCreate}>
         <div className="filter-bar">
@@ -173,12 +175,12 @@ function CategoriesCard() {
                 {category.name}{' '}
                 {category.builtIn ? <Badge>built-in</Badge> : null}
               </span>
-              {category.builtIn ? (
-                <span className="subtle">shared by everyone</span>
-              ) : (
+              {!category.builtIn && (
                 <button
                   type="button"
                   className="button button--ghost button--small"
+                  disabled={deleteCategory.isPending}
+                  aria-label={`Delete ${category.name}`}
                   onClick={() => deleteCategory.mutate(category.id)}
                 >
                   Delete
@@ -190,8 +192,7 @@ function CategoriesCard() {
       ) : null}
 
       <p className="subtle" style={{ marginTop: 'var(--space-3)' }}>
-        Built-in categories are shared by all users and cannot be edited. Deleting a custom category
-        leaves its transactions uncategorised rather than removing them.
+        Deleting a custom category keeps its transactions and removes their category assignment.
       </p>
     </Card>
   )
@@ -228,8 +229,8 @@ function RecurringCard() {
             </thead>
             <tbody>
               {data.map((expense) => (
-                <tr key={expense.merchant} title={expense.explanation}>
-                  <td>{expense.merchant}</td>
+                <tr key={`${expense.merchant}-${expense.currency}`}>
+                  <td><details><summary>{expense.merchant}</summary><p className="subtle">{expense.explanation}</p></details></td>
                   <td className="muted">{expense.cadence.toLowerCase()}</td>
                   <td className="numeric">{formatCurrency(expense.typicalAmount, expense.currency)}</td>
                   <td className="numeric">{formatCurrency(expense.monthlyCost, expense.currency)}</td>
@@ -248,8 +249,7 @@ function RecurringCard() {
       ) : null}
 
       <p className="subtle" style={{ marginTop: 'var(--space-3)' }}>
-        These are patterns found in your history, not confirmed contracts. Hover a row to see why it
-        was flagged.
+        These estimates come from repeated payments in your history. Select a merchant to see the reasoning.
       </p>
     </Card>
   )

@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   formatCurrency,
+  formatDate,
   formatMonth,
   formatPercentage,
   formatPercentageChange,
@@ -52,6 +53,23 @@ describe('formatMonth', () => {
 
   it('returns the input unchanged when it is not a month', () => {
     expect(formatMonth('nonsense')).toBe('nonsense')
+    expect(formatMonth('2026-13')).toBe('2026-13')
+    expect(formatMonth('2026-nope')).toBe('2026-nope')
+  })
+})
+
+describe('formatDate', () => {
+  it('keeps calendar dates unchanged in a timezone west of UTC', () => {
+    const DateTimeFormat = Intl.DateTimeFormat
+    const formatter = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(function (locale, options) {
+      return new DateTimeFormat(locale, { timeZone: 'America/Los_Angeles', ...options })
+    })
+    try {
+      expect(formatDate('2026-10-15')).toBe('15 Oct 2026')
+      expect(formatDate('2026-10-15T00:00:00Z')).toBe('14 Oct 2026')
+    } finally {
+      formatter.mockRestore()
+    }
   })
 })
 

@@ -6,6 +6,8 @@ import com.spendscope.support.TestUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -220,6 +222,44 @@ class AnalyticsIT extends AbstractIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(2))
                 .andExpect(jsonPath("$.points.length()").value(0));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = GroupBy.class, names = {"DAY", "WEEK", "MONTH"})
+    void comparesCorrespondingTimeBuckets(GroupBy grouping) throws Exception {
+        api.createTransaction(user, accountId, firstOfLastMonth, "CURRENT PERIOD", "-30.00");
+        api.createTransaction(user, accountId, firstOfLastMonth.minusMonths(1), "PREVIOUS PERIOD", "-12.00");
+
+        mockMvc.perform(api.post(user, "/api/analytics/query")
+                        .content(api.json(Map.of(
+                                "metric", "TOTAL_SPENDING",
+                                "period", Map.of("type", "LAST_MONTH"),
+                                "groupBy", grouping.name(),
+                                "comparison", "PREVIOUS_PERIOD"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.previousTotal").value(12.00))
+                .andExpect(jsonPath("$.points[0].value").value(30.00))
+                .andExpect(jsonPath("$.points[0].previousValue").value(12.00))
+                .andExpect(jsonPath("$.points[0].percentageChange").value(150.00));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Metric.class, names = {"TRANSACTION_COUNT", "AVERAGE_DAILY_SPENDING"})
+    void rejectsUnsupportedGroupingInsteadOfReturningSpending(Metric metric) throws Exception {
+        mockMvc.perform(api.post(user, "/api/analytics/query")
+                        .content(api.json(Map.of(
+                                "metric", metric.name(),
+                                "period", Map.of("type", "THIS_MONTH"),
+                                "groupBy", "DAY"))))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void validatesNestedPeriodFields() throws Exception {
+        mockMvc.perform(api.post(user, "/api/analytics/query")
+                        .content(api.json(Map.of("metric", "TOTAL_SPENDING", "period", Map.of()))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors['period.type']").exists());
     }
 
     @Test

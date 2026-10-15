@@ -1,17 +1,17 @@
 # API reference
 
-Base path: `/api`. All requests and responses are `application/json` unless
-stated otherwise.
+The base path is `/api`. Requests and responses use `application/json` unless
+stated otherwise. Examples assume the backend runs at `http://localhost:8080`.
 
 An interactive version is available at `/swagger-ui.html` when the application
 runs with `OPENAPI_ENABLED=true` (the default outside production).
 
 ## Authentication
 
-Session-cookie based.
+Authentication uses a server-side session identified by a browser cookie.
 
 1. `GET /api/auth/csrf` — obtain the `XSRF-TOKEN` cookie.
-2. `POST /api/auth/login` — receive the `JSESSIONID` cookie.
+2. Call `POST /api/auth/login` with the CSRF header to receive the `JSESSIONID` cookie.
 3. Send both cookies on subsequent requests. For every state-changing request
    (`POST`, `PUT`, `PATCH`, `DELETE`), also echo the CSRF token in the
    `X-XSRF-TOKEN` header.
@@ -23,12 +23,15 @@ TOKEN=$(grep XSRF-TOKEN jar | awk '{print $7}')
 curl -c jar -b jar -H "X-XSRF-TOKEN: $TOKEN" -H 'Content-Type: application/json' ...
 ```
 
-Requests without a valid session receive `401`. Requests without a valid CSRF
-token receive `403`.
+Protected endpoints return `401` without a valid session. State-changing
+requests with a missing or invalid CSRF token return `403`, including anonymous
+registration, login, and demo creation. CSRF validation can run before
+authentication, so a request missing both may receive `403` first.
 
 ## Errors
 
-Every failure uses one shape.
+Application error responses use the following structure; a reverse proxy may
+return a different format for failures it handles itself.
 
 ```json
 {
@@ -74,7 +77,9 @@ Paged endpoints return:
 }
 ```
 
-`size` is capped at **200**; a larger value is a validation error.
+Transaction pages accept at most 200 rows. Import history and security activity
+accept at most 100 rows. Values outside an endpoint's limits return a validation
+error.
 
 ---
 
@@ -84,42 +89,47 @@ Paged endpoints return:
 
 ### `POST /api/auth/register`
 
-Anonymous. Creates an account and its starter dashboard.
+This endpoint permits anonymous requests and creates a user with a starter
+dashboard. It does not establish a login session.
 
 ```json
 { "email": "alice@example.com", "password": "correct-horse-battery" }
 ```
 
-Password must be 10–72 characters. `201`:
+Passwords must be 10–72 characters and at most 72 UTF-8 bytes. A successful
+registration returns `201` with the user:
 
 ```json
 { "id": 1, "email": "alice@example.com", "demo": false, "createdAt": "2026-09-06T12:00:00Z" }
 ```
 
-Errors: `400` invalid email or password; `409` email already registered.
+Invalid email or password input returns `400`; an email already registered
+returns `409`.
 
 ### `POST /api/auth/login`
 
-Anonymous. Establishes a session.
+This endpoint permits anonymous requests and establishes a session.
 
 ```json
 { "email": "alice@example.com", "password": "correct-horse-battery" }
 ```
 
-`200` returns the user. Errors: `401` (identical for wrong password and unknown
-email); `429` after repeated failures.
+A successful login returns `200` with the user. An incorrect password or unknown
+email returns the same public `401` error, while repeated failures return `429`.
 
 ### `POST /api/auth/logout`
 
-Invalidates the session. `204`.
+This endpoint invalidates the current session and returns `204`.
 
 ### `GET /api/auth/me`
 
-Returns the authenticated user. `401` if not logged in.
+This endpoint returns the authenticated user, or `401` when there is no valid
+session.
 
 ### `GET /api/auth/csrf`
 
-Anonymous. `204`, with the `XSRF-TOKEN` cookie set.
+This endpoint permits anonymous requests and returns `204` with the
+`XSRF-TOKEN` cookie set.
 
 ### `POST /api/auth/password`
 
@@ -127,7 +137,9 @@ Anonymous. `204`, with the `XSRF-TOKEN` cookie set.
 { "currentPassword": "...", "newPassword": "..." }
 ```
 
-`204`. Errors: `401` if the current password is wrong.
+A successful change returns `204`. An incorrect current password returns `401`.
+The new password must satisfy the registration length limits. Other existing
+login sessions are not revoked by this endpoint.
 
 ---
 
@@ -135,10 +147,11 @@ Anonymous. `204`, with the `XSRF-TOKEN` cookie set.
 
 ### `POST /api/demo/session`
 
-Anonymous. Creates a throwaway account with ~9 months of synthetic data and logs
-the caller in. `201` returns the user with `"demo": true`.
+This endpoint permits anonymous requests and creates a disposable account with
+approximately nine months of synthetic data. It logs the caller in and returns
+`201` with `"demo": true`.
 
-Rate limited to 5 per IP per hour (`429`).
+The endpoint permits five requests per IP per hour, then returns `429`.
 
 ---
 
@@ -173,7 +186,8 @@ Rate limited to 5 per IP per hour (`429`).
 
 ### `DELETE /api/accounts/{id}`
 
-`204` only if the account has no transactions. Otherwise `409`:
+Deletion returns `204` for an account without transactions. An account with
+history returns `409`:
 
 ```json
 { "code": "CONFLICT",
@@ -186,7 +200,7 @@ Rate limited to 5 per IP per hour (`429`).
 
 ### `GET /api/categories`
 
-Built-in categories plus your own.
+This endpoint returns built-in categories and the current user's custom categories.
 
 ```json
 [ { "id": 1, "name": "Food", "type": "EXPENSE", "builtIn": true },
@@ -232,7 +246,7 @@ GET /api/transactions?page=0&size=25&from=2026-01-01&to=2026-09-01&categoryId=5&
   "page": 0, "size": 25, "totalElements": 396, "totalPages": 16, "hasNext": true }
 ```
 
-Errors: `400` if `from` is after `to`, or `sort` is not on the allowlist.
+An inverted date range or unsupported sort field returns `400`.
 
 ### `GET /api/transactions/{id}`
 ### `POST /api/transactions` · `PUT /api/transactions/{id}`
@@ -243,13 +257,13 @@ Errors: `400` if `from` is after `to`, or `sort` is not on the allowlist.
   "currency": "SGD", "merchant": null }
 ```
 
-- `amount` is **signed**: negative is spending, positive is income. Must be
-  non-zero.
+- `amount` is signed and must be non-zero: negative values are outgoings, and
+  positive values are inflows.
 - `categoryId` `null` means "detect automatically" on create.
 - `currency` and `merchant` are optional; they default to the account currency
   and the detected merchant.
 
-`201` / `200` with the created or updated transaction.
+Creation returns `201`, while an update returns `200`; both include the transaction.
 
 ### `PATCH /api/transactions/{id}/category`
 
@@ -257,11 +271,12 @@ Errors: `400` if `from` is after `to`, or `sort` is not on the allowlist.
 { "categoryId": 3 }
 ```
 
-`null` clears the category. `200`.
+A null category ID clears the category. The endpoint returns `200` with the
+updated transaction.
 
 ### `DELETE /api/transactions/{id}`
 
-`204`.
+Successful deletion returns `204`.
 
 ---
 
@@ -269,7 +284,7 @@ Errors: `400` if `from` is after `to`, or `sort` is not on the allowlist.
 
 ### `POST /api/imports/csv`
 
-`multipart/form-data`.
+This endpoint accepts `multipart/form-data`.
 
 | Part / parameter | Notes |
 |---|---|
@@ -307,14 +322,17 @@ curl -c jar -b jar -H "X-XSRF-TOKEN: $TOKEN" \
 
 `rowsProcessed = rowsImported + rowsRejected + duplicatesDetected`. Duplicates
 are counted separately because they are not errors — the row was understood, it
-just already exists. Duplicates are **never** overwritten or deleted.
+just matches an existing fingerprint. Existing transactions are not overwritten
+or deleted. Identical legitimate purchases can share a fingerprint, so a skipped
+row should be reviewed when the statement contains repeated purchases.
 
-Errors: `400` unparseable or wrong columns; `413` too large; `404` if the
-account is not yours.
+Invalid file structure or missing required columns return `400`. An oversized
+upload returns `413`, and an inaccessible account returns `404`.
 
 ### `GET /api/imports`
 
-Paged history of past imports.
+This endpoint returns a paginated history of completed imports. It accepts
+`page` (default 0) and `size` (default 20, maximum 100).
 
 ---
 
@@ -338,8 +356,10 @@ Paged history of past imports.
   "currency": "SGD" }
 ```
 
-`spendingChangePercentage` is `null` — never `Infinity` or `NaN` — when the
-previous period had no spending.
+`spendingChangePercentage` is null when the previous period had no spending,
+because percentage growth from zero is undefined. Spending sums the magnitudes
+of negative transactions; positive refunds are included in income instead.
+Totals do not perform currency conversion across accounts.
 
 ### `POST /api/analytics/query`
 
@@ -369,8 +389,16 @@ previous period had no spending.
                 "percentageChange": 4.5, "share": 33.8 } ] }
 ```
 
-Time groupings return **dense** buckets: a period with no spending appears as a
-zero, not a gap, so a line chart cannot silently connect across missing days.
+The `TRANSACTION_COUNT` and `AVERAGE_DAILY_SPENDING` metrics return scalar
+values and reject `groupBy`. Metrics with an implied grouping, such as
+`CATEGORY_SPENDING`, use that grouping even if another is requested.
+
+Time groupings return dense buckets, including zero-valued points for periods
+without spending. Previous-period time buckets are paired by their position
+within each period; an unmatched bucket has a null `previousValue`. Category,
+merchant, and account comparisons instead match the group identity. Calendar periods compare with the corresponding previous
+calendar period; custom and rolling ranges compare with the preceding range of
+equal length.
 
 ---
 
@@ -378,7 +406,7 @@ zero, not a gap, so a line chart cannot silently connect across missing days.
 
 ### `GET /api/dashboard/widgets`
 
-Widgets in display order.
+This endpoint returns the current user's widgets in display order.
 
 ```json
 [ { "id": 1, "metricType": "TOTAL_SPENDING", "metric": "TOTAL_SPENDING",
@@ -412,11 +440,12 @@ Widgets in display order.
 { "widgetIds": [3, 1, 2, 4] }
 ```
 
-Must list every one of your widgets exactly once, or `400`.
+The request must list each of the current user's widgets exactly once; otherwise
+it returns `400`.
 
 ### `POST /api/dashboard/widgets/reset`
 
-Restores the default layout.
+This endpoint replaces the current layout with the default widgets.
 
 ---
 
@@ -443,8 +472,9 @@ budget is exceeded rather than clamping at zero.
 { "categoryId": 1, "month": "2026-09", "amount": 500.00 }
 ```
 
-Only the amount is editable. `409` if a budget already exists for that category
-and month.
+Only the amount is editable on an existing budget, although the request still
+uses the same required fields. Creating a second budget for the same category
+and month returns `409`.
 
 ---
 
@@ -463,7 +493,10 @@ and month.
 ```
 
 `cadence` ∈ `WEEKLY`, `FORTNIGHTLY`, `MONTHLY`, `QUARTERLY`, `YEARLY`.
-`confidence` ∈ `LOW`, `MEDIUM`, `HIGH`.
+`confidence` ∈ `LOW`, `MEDIUM`, `HIGH`. The endpoint examines the preceding
+12 months, so the detector's minimum of three payments prevents annual patterns
+from being established through this endpoint. A cadence enum describes supported
+algorithm inputs, not a guarantee that the API's lookback supplies enough history.
 
 ### `GET /api/insights/anomalies`
 
@@ -486,7 +519,8 @@ fraud.
 
 ### `GET /api/security/events`
 
-Paged. Your own events only.
+This endpoint returns a paginated list of the current user's audit events. It
+accepts `page` (default 0) and `size` (default 25, maximum 100).
 
 ```json
 { "content": [ { "id": 1, "eventType": "LOGIN_SUCCESS",
@@ -494,7 +528,8 @@ Paged. Your own events only.
   "page": 0, "size": 25, "totalElements": 12, "totalPages": 1, "hasNext": false }
 ```
 
-`metadata` never contains passwords, hashes, session identifiers or tokens.
+Credential-related metadata keys are filtered before storage. The filtering
+policy is described in [security.md](security.md).
 
 ---
 
@@ -502,7 +537,7 @@ Paged. Your own events only.
 
 ### `GET /actuator/health`
 
-Anonymous.
+This endpoint permits anonymous requests.
 
 ```json
 { "status": "UP", "groups": ["liveness", "readiness"] }

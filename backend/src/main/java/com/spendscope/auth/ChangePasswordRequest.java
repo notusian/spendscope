@@ -1,14 +1,16 @@
 package com.spendscope.auth;
 
+import com.spendscope.common.validation.Utf8Length;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 public record ChangePasswordRequest(
         @NotBlank(message = "Current password is required")
-        @Size(max = 72)
+        @Utf8Length(max = 72)
         String currentPassword,
 
         @NotBlank(message = "New password is required")
-        @Size(min = 10, max = 72, message = "Password must be between 10 and 72 characters")
+        @Size(min = 10, message = "Password must contain at least 10 characters")
+        @Utf8Length(max = 72)
         String newPassword) {
 }

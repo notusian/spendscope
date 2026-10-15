@@ -17,15 +17,7 @@ import { useChartPalette, readToken } from '../../hooks/useChartPalette'
 import { formatCompactCurrency, formatCurrency } from '../../lib/format'
 import type { AnalyticsPoint } from '../../api/types'
 
-/**
- * Chart primitives shared by the dashboard widgets.
- *
- * Deliberately plain: axes, a grid, a tooltip, and no entry animation. The job
- * of a spending chart is to be read accurately, not to be impressive, and
- * Recharts' default 1.5s reveal delays the number the user came for. Turning it
- * off also makes screenshots and tests deterministic - a half-drawn line looks
- * exactly like missing data.
- */
+/** Shared chart components render without entry animations to keep values immediately readable. */
 
 const CHART_HEIGHT = 240
 

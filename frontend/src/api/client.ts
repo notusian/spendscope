@@ -54,13 +54,7 @@ export function onSessionExpired(listener: SessionExpiredListener): () => void {
   return () => sessionExpiredListeners.delete(listener)
 }
 
-/**
- * Reads the CSRF token Spring Security writes into a JS-readable cookie.
- *
- * The session cookie itself is HttpOnly and unreadable here, which is the
- * point: a script that could read the session id would make XSS catastrophic
- * rather than merely bad.
- */
+/** Reads the CSRF token cookie; the HttpOnly session cookie remains inaccessible. */
 function readCsrfToken(): string | null {
   const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/)
   return match?.[1] ? decodeURIComponent(match[1]) : null
@@ -101,7 +95,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     method,
     headers,
     body,
-    // Without this the browser would not send the session cookie at all.
+    // Include cookies if API_BASE is later configured for a separate origin.
     credentials: 'include',
     signal: options.signal,
   })

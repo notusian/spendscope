@@ -60,6 +60,8 @@ export function formatDate(isoDate: string | null | undefined): string {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
+    // A calendar date has no timezone; parsing YYYY-MM-DD produces UTC midnight.
+    ...(/^\d{4}-\d{2}-\d{2}$/.test(isoDate) ? { timeZone: 'UTC' } : {}),
   }).format(date)
 }
 
@@ -78,6 +80,7 @@ export function formatDateTime(isoInstant: string | null | undefined): string {
 
 /** "2026-09" -> "September 2026". */
 export function formatMonth(yearMonth: string): string {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(yearMonth)) return yearMonth
   const [year, month] = yearMonth.split('-')
   if (!year || !month) return yearMonth
   const date = new Date(Number(year), Number(month) - 1, 1)

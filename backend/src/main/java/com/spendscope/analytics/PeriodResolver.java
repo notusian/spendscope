@@ -5,7 +5,6 @@ import org.springframework.stereotype.Component;
 
 import java.time.Clock;
 import java.time.LocalDate;
-import java.time.temporal.ChronoUnit;
 
 /**
  * Turns a {@link PeriodType} into concrete dates, and works out what "the
@@ -87,27 +86,17 @@ public class PeriodResolver {
      */
     private DateRange sameSliceOfPreviousMonth(DateRange current) {
         LocalDate previousMonthStart = current.start().minusMonths(1).withDayOfMonth(1);
-        long elapsedDays = ChronoUnit.DAYS.between(current.start(), current.end());
-        LocalDate previousMonthEnd = previousMonthStart.plusDays(elapsedDays);
-
-        LocalDate lastDayOfPreviousMonth =
-                previousMonthStart.withDayOfMonth(previousMonthStart.lengthOfMonth());
-        if (previousMonthEnd.isAfter(lastDayOfPreviousMonth)) {
-            previousMonthEnd = lastDayOfPreviousMonth;
-        }
+        boolean completeMonth = current.end().getDayOfMonth() == current.end().lengthOfMonth();
+        LocalDate previousMonthEnd = completeMonth
+                ? previousMonthStart.withDayOfMonth(previousMonthStart.lengthOfMonth())
+                : current.end().minusMonths(1);
         return new DateRange(previousMonthStart, previousMonthEnd);
     }
 
     /** 1 Jan - 5 Sep 2026 becomes 1 Jan - 5 Sep 2025. */
     private DateRange sameSliceOfPreviousYear(DateRange current) {
         LocalDate previousYearStart = current.start().minusYears(1).withDayOfYear(1);
-        long elapsedDays = ChronoUnit.DAYS.between(current.start(), current.end());
-        LocalDate previousYearEnd = previousYearStart.plusDays(elapsedDays);
-
-        LocalDate lastDayOfPreviousYear = previousYearStart.withDayOfYear(previousYearStart.lengthOfYear());
-        if (previousYearEnd.isAfter(lastDayOfPreviousYear)) {
-            previousYearEnd = lastDayOfPreviousYear;
-        }
+        LocalDate previousYearEnd = current.end().minusYears(1);
         return new DateRange(previousYearStart, previousYearEnd);
     }
 }

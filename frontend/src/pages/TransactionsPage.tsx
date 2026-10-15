@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, useEffect, useState } from 'react'
 import {
   useAccounts,
   useCategories,
@@ -23,14 +23,6 @@ import type { Transaction, TransactionFilters, TransactionInput } from '../api/t
 
 const PAGE_SIZE = 25
 
-const EMPTY_FORM: TransactionInput = {
-  accountId: 0,
-  categoryId: null,
-  date: todayIsoDate(),
-  description: '',
-  amount: 0,
-}
-
 export default function TransactionsPage() {
   const [filters, setFilters] = useState<TransactionFilters>({
     page: 0,
@@ -41,11 +33,17 @@ export default function TransactionsPage() {
   const [editing, setEditing] = useState<Transaction | null>(null)
   const [isFormOpen, setIsFormOpen] = useState(false)
 
-  const { data: accounts } = useAccounts()
+  const { data: accounts } = useAccounts(true)
   const { data: categories } = useCategories()
-  const { data, isLoading, error, refetch } = useTransactions(filters)
+  const { data, isLoading, isPlaceholderData, error, refetch } = useTransactions(filters)
   const recategorise = useRecategoriseTransaction()
   const deleteTransaction = useDeleteTransaction()
+
+  useEffect(() => {
+    if (data && !isPlaceholderData && data.page > 0 && data.page >= data.totalPages) {
+      setFilters((current) => ({ ...current, page: Math.max(data.totalPages - 1, 0) }))
+    }
+  }, [data, isPlaceholderData])
 
   const updateFilter = (patch: Partial<TransactionFilters>) => {
     // Any filter change resets to the first page: staying on page 7 of a
@@ -77,6 +75,7 @@ export default function TransactionsPage() {
 
       {isFormOpen ? (
         <TransactionForm
+          key={editing?.id ?? 'new'}
           transaction={editing}
           onClose={() => setIsFormOpen(false)}
         />
@@ -90,7 +89,7 @@ export default function TransactionsPage() {
               className="input"
               type="search"
               placeholder="Merchant or description"
-              defaultValue={filters.search ?? ''}
+              value={filters.search ?? ''}
               onChange={(event) => updateFilter({ search: event.target.value || undefined })}
             />
           </Field>
@@ -160,6 +159,9 @@ export default function TransactionsPage() {
           </button>
         </div>
 
+        {recategorise.error ? <Alert variant="error">{errorMessage(recategorise.error)}</Alert> : null}
+        {deleteTransaction.error ? <Alert variant="error">{errorMessage(deleteTransaction.error)}</Alert> : null}
+
         {isLoading ? <LoadingState /> : null}
         {error ? <ErrorState error={error} onRetry={() => void refetch()} /> : null}
 
@@ -200,6 +202,7 @@ export default function TransactionsPage() {
                           className="select"
                           style={{ minWidth: 140 }}
                           value={transaction.categoryId ?? ''}
+                          disabled={recategorise.isPending}
                           onChange={(event) =>
                             recategorise.mutate({
                               id: transaction.id,
@@ -225,6 +228,7 @@ export default function TransactionsPage() {
                             type="button"
                             className="button button--ghost button--small"
                             onClick={() => openEdit(transaction)}
+                            aria-label={`Edit ${transaction.description}`}
                           >
                             Edit
                           </button>
@@ -232,6 +236,7 @@ export default function TransactionsPage() {
                             type="button"
                             className="button button--ghost button--small"
                             onClick={() => deleteTransaction.mutate(transaction.id)}
+                            disabled={deleteTransaction.isPending}
                             aria-label={`Delete ${transaction.description}`}
                           >
                             Delete
@@ -253,7 +258,7 @@ export default function TransactionsPage() {
                 <button
                   type="button"
                   className="button button--secondary button--small"
-                  disabled={data.page === 0}
+                  disabled={data.page === 0 || isPlaceholderData}
                   onClick={() => setFilters((current) => ({ ...current, page: (current.page ?? 0) - 1 }))}
                 >
                   Previous
@@ -261,7 +266,7 @@ export default function TransactionsPage() {
                 <button
                   type="button"
                   className="button button--secondary button--small"
-                  disabled={!data.hasNext}
+                  disabled={!data.hasNext || isPlaceholderData}
                   onClick={() => setFilters((current) => ({ ...current, page: (current.page ?? 0) + 1 }))}
                 >
                   Next
@@ -282,7 +287,7 @@ function TransactionForm({
   transaction: Transaction | null
   onClose: () => void
 }) {
-  const { data: accounts } = useAccounts()
+  const { data: accounts } = useAccounts(true)
   const { data: categories } = useCategories()
   const createTransaction = useCreateTransaction()
   const updateTransaction = useUpdateTransaction()
@@ -295,9 +300,16 @@ function TransactionForm({
           date: transaction.date,
           description: transaction.description,
           amount: transaction.amount,
+          currency: transaction.currency,
           merchant: transaction.merchant,
         }
-      : { ...EMPTY_FORM, accountId: accounts?.[0]?.id ?? 0 },
+      : {
+          accountId: accounts?.find((account) => !account.archived)?.id ?? 0,
+          categoryId: null,
+          date: todayIsoDate(),
+          description: '',
+          amount: 0,
+        },
   )
   const [error, setError] = useState<unknown>(null)
 
@@ -321,7 +333,7 @@ function TransactionForm({
   return (
     <Card title={transaction ? 'Edit transaction' : 'New transaction'} className="stack">
       {error ? <Alert variant="error">{errorMessage(error)}</Alert> : null}
-      <form onSubmit={handleSubmit} noValidate>
+      <form onSubmit={handleSubmit}>
         <div className="filter-bar">
           <Field label="Date" htmlFor="form-date" error={fieldErrorOf(error, 'date')}>
             <input
@@ -367,7 +379,7 @@ function TransactionForm({
               onChange={(event) => setForm({ ...form, accountId: Number(event.target.value) })}
             >
               <option value="">Select an account</option>
-              {accounts?.map((account) => (
+              {accounts?.filter((account) => !account.archived || account.id === transaction?.accountId).map((account) => (
                 <option key={account.id} value={account.id}>
                   {account.name}
                 </option>
@@ -384,7 +396,7 @@ function TransactionForm({
                 setForm({ ...form, categoryId: event.target.value ? Number(event.target.value) : null })
               }
             >
-              <option value="">Detect automatically</option>
+              <option value="">{transaction ? 'Uncategorised' : 'Detect automatically'}</option>
               {categories?.map((category) => (
                 <option key={category.id} value={category.id}>
                   {category.name}

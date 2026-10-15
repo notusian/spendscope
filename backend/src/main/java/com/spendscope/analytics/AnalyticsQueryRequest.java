@@ -1,5 +1,6 @@
 package com.spendscope.analytics;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
@@ -19,6 +20,7 @@ public record AnalyticsQueryRequest(
         Metric metric,
 
         @NotNull(message = "Period is required")
+        @Valid
         Period period,
 
         /** Ignored when the metric implies its own grouping. */

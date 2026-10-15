@@ -32,9 +32,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const { data: user, isLoading } = useQuery({
     queryKey: CURRENT_USER_KEY,
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       try {
-        return await authApi.me()
+        return await authApi.me(signal)
       } catch (error) {
         // A 401 here is the normal "not logged in" answer, not a failure.
         if (error instanceof ApiError && error.isUnauthenticated) {
@@ -66,37 +66,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
   }, [queryClient])
 
+  const acceptSession = async (loggedInUser: User) => {
+    // An earlier /me response must not replace the session we just established.
+    await queryClient.cancelQueries()
+    queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== 'auth' })
+    queryClient.setQueryData(CURRENT_USER_KEY, loggedInUser)
+  }
+
   const loginMutation = useMutation({
-    mutationFn: ({ email, password }: { email: string; password: string }) =>
-      authApi.login(email, password),
-    onSuccess: (loggedInUser) => {
-      queryClient.setQueryData(CURRENT_USER_KEY, loggedInUser)
-      queryClient.invalidateQueries()
+    mutationFn: async ({ email, password }: { email: string; password: string }) => {
+      await authApi.primeCsrf()
+      return authApi.login(email, password)
     },
+    onSuccess: acceptSession,
   })
 
   const registerMutation = useMutation({
-    mutationFn: ({ email, password }: { email: string; password: string }) =>
-      authApi.register(email, password).then(() => authApi.login(email, password)),
-    onSuccess: (loggedInUser) => {
-      queryClient.setQueryData(CURRENT_USER_KEY, loggedInUser)
-      queryClient.invalidateQueries()
+    mutationFn: async ({ email, password }: { email: string; password: string }) => {
+      await authApi.primeCsrf()
+      await authApi.register(email, password)
+      return authApi.login(email, password)
     },
+    onSuccess: acceptSession,
   })
 
   const demoMutation = useMutation({
-    mutationFn: () => demoApi.createSession(),
-    onSuccess: (demoUser) => {
-      queryClient.setQueryData(CURRENT_USER_KEY, demoUser)
-      queryClient.invalidateQueries()
+    mutationFn: async () => {
+      await authApi.primeCsrf()
+      return demoApi.createSession()
     },
+    onSuccess: acceptSession,
   })
 
   const logoutMutation = useMutation({
     mutationFn: () => authApi.logout(),
-    onSettled: async () => {
+    onSuccess: async () => {
+      await queryClient.cancelQueries()
       queryClient.setQueryData(CURRENT_USER_KEY, null)
-      queryClient.clear()
+      queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== 'auth' })
       // The session cookie is gone; fetch a fresh CSRF token for the next login.
       await authApi.primeCsrf().catch(() => undefined)
     },

@@ -2,6 +2,8 @@ import { type FormEvent, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { Alert, Field, errorMessage, fieldErrorOf } from '../components/ui'
+import Brand from '../components/Brand'
+import ThemeSelect from '../components/ThemeSelect'
 
 export default function LoginPage() {
   const { user, login, startDemo, isAuthenticating } = useAuth()
@@ -10,11 +12,12 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<unknown>(null)
+  const from = (location.state as { from?: string } | null)?.from
+  const destination = from?.startsWith('/') && !from.startsWith('//') ? from : '/dashboard'
 
   // Already logged in: go where they were headed, or to the dashboard.
   if (user) {
-    const from = (location.state as { from?: string } | null)?.from
-    return <Navigate to={from ?? '/dashboard'} replace />
+    return <Navigate to={destination} replace />
   }
 
   const handleSubmit = async (event: FormEvent) => {
@@ -22,7 +25,7 @@ export default function LoginPage() {
     setError(null)
     try {
       await login(email, password)
-      navigate('/dashboard', { replace: true })
+      navigate(destination, { replace: true })
     } catch (loginError) {
       setError(loginError)
     }
@@ -32,7 +35,7 @@ export default function LoginPage() {
     setError(null)
     try {
       await startDemo()
-      navigate('/dashboard', { replace: true })
+      navigate(destination, { replace: true })
     } catch (demoError) {
       setError(demoError)
     }
@@ -40,6 +43,7 @@ export default function LoginPage() {
 
   return (
     <div className="auth-page">
+      <header className="auth-topbar"><Brand /><ThemeSelect /></header>
       <div className="auth-card">
         <h1 className="auth-card__title">Welcome back</h1>
         <p className="auth-card__subtitle">Log in to your SpendScope account.</p>
@@ -89,7 +93,7 @@ export default function LoginPage() {
         </button>
 
         <p className="subtle" style={{ marginTop: 'var(--space-4)', textAlign: 'center' }}>
-          No account? <Link to="/register">Sign up</Link>
+          <Link to="/register">Create a SpendScope account</Link>
         </p>
       </div>
     </div>
